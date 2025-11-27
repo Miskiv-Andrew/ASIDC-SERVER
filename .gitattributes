@@ -1,0 +1,39 @@
+# Универсальное правило: все текстовые файлы нормализовать
+* text=auto
+
+# Исходники C++ и заголовки
+*.cpp   text
+*.c     text
+*.h     text
+*.hpp   text
+
+# Qt‑ресурсы и конфиги
+*.pro   text
+*.pri   text
+*.ui    text
+*.qrc   text
+
+# Тестовые данные и конфиги — хранить строго в LF
+*.json      text eol=lf
+*.expected  text eol=lf
+*.in        text eol=lf
+*.txt       text eol=lf
+*.yml       text eol=lf
+*.py        text eol=lf
+*.sh        text eol=lf
+
+# Бинарные файлы не трогать
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.ico   binary
+*.exe   binary
+*.dll   binary
+*.lib   binary
+*.pdb   binary
+*.zip   binary
+*.7z    binary
+*.tar   binary
+*.gz    binary
