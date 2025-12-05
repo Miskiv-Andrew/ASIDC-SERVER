@@ -4,13 +4,20 @@
 #include <chrono>
 #include <ctime>
 
+
+// в начале файла:
+ServerCore* ServerCore::currentInstance = nullptr;
+
 ServerCore::ServerCore() : serverContext(nullptr), serverRunning(false), currentPort(0)
 {
+    // в конструктор:
+    currentInstance = this;
 }
 
 ServerCore::~ServerCore()
 {
     stopServer();
+    currentInstance = nullptr;
 }
 
 bool ServerCore::startServer(int port)
@@ -44,7 +51,8 @@ bool ServerCore::startServer(int port)
     currentPort = port;
     lastError.clear();
 
-    std::cout << "HTTP server with request handler started on port " << port << std::endl;
+    // Тестовый вывод
+    logMessage("HTTP server with request handler started on port " + std::to_string(port));
     return true;
 
 }
@@ -73,6 +81,11 @@ std::string ServerCore::getLastError() const
 int ServerCore::getServerPort() const
 {
     return currentPort;
+}
+
+void ServerCore::setLogCallback(LogCallback callback)
+{
+    logCallback_ = callback;
 }
 
 
@@ -155,6 +168,11 @@ std::string ServerCore::getCurrentTime()
         time_str.pop_back();
     }
     return time_str;
+}
+
+void ServerCore::logMessage(const std::string &message)
+{
+    if (logCallback_) logCallback_(message);
 }
 
 

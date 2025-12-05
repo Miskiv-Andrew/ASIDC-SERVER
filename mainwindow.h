@@ -11,6 +11,10 @@
 
 #include <json/json.h>
 
+#include <openssl/crypto.h>
+
+
+
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -36,9 +40,22 @@ private slots:
 
     void on_btnTestHTTP_clicked();
 
+    void on_btnTestDbConnect_clicked();
+
+    void on_btnClearLogs_clicked();
+
+
+    // void testPasswordHasher();
+
+    void on_pushButton_clicked();
+
+    void on_pushButton_2_clicked();
+
 private:
+
     Ui::MainWindow *ui;
     ServerCore serverCore;  // Добавляем сервер
     QNetworkAccessManager* networkManager;  // Для HTTP запросов
+
 };
 #endif // MAINWINDOW_H

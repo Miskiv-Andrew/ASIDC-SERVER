@@ -6,14 +6,22 @@ CONFIG += c++17
 
 # You can make your code fail to compile if it uses deprecated APIs.
 # In order to do so, uncomment the following line.
-#DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
+#DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0   nanodbc
+
+
+LIBS += -lodbc32
 
 INCLUDEPATH += $$PWD/jsoncpp/include
+
+INCLUDEPATH += $$PWD/nanodbc
 
 SOURCES += \
     $$PWD/jsoncpp/src/lib_json/json_reader.cpp \
     $$PWD/jsoncpp/src/lib_json/json_value.cpp  \
-    $$PWD/jsoncpp/src/lib_json/json_writer.cpp
+    $$PWD/jsoncpp/src/lib_json/json_writer.cpp \
+    databasemanager.cpp \
+    nanodbc/nanodbc.cpp \
+    passwordhasher.cpp
 
 
 SOURCES += \
@@ -30,11 +38,29 @@ HEADERS += \
     cv_web/openssl_dl.inl \
     cv_web/response.inl \
     cv_web/sort.inl \
+    databasemanager.h \
     mainwindow.h \
+    nanodbc/nanodbc.h \
+    passwordhasher.h \
     src/servercore.h
 
 FORMS += \
     mainwindow.ui
+
+
+win32 {
+    # Путь к установленному OpenSSL (полная версия)
+    OPENSSL_PATH = "C:/Program Files/OpenSSL-Win64"
+
+    # Добавляем путь к заголовочным файлам
+    INCLUDEPATH += "$$OPENSSL_PATH/include"
+
+    # Добавляем путь к библиотекам (специфичная для MSVC папка)
+    LIBS += -L"$$OPENSSL_PATH/lib/VC/x64/MD"
+
+    # Подключаем библиотеки OpenSSL
+    LIBS += -llibssl -llibcrypto
+}
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

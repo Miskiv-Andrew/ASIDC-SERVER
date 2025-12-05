@@ -3,6 +3,12 @@
 #include <QThread>
 
 
+#include "passwordhasher.h"
+#include <QMessageBox>
+
+#include "databasemanager.h"
+
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -24,6 +30,25 @@ MainWindow::MainWindow(QWidget *parent)
     obj["value"] = 123;
     std::string s = obj.toStyledString();
     ui->txtLog->append(QString::fromStdString(s));
+
+
+    serverCore.setLogCallback([this](const std::string& message) {
+        QString qMessage = QString::fromStdString(message);
+        ui->txtLog->append(qMessage);
+    });
+
+
+    const char* version = OpenSSL_version(OPENSSL_VERSION);
+
+
+    // Вывод в GUI (если есть текстовое поле txtLog)
+
+    ui->txtLog->append(QString("OpenSSL loaded: %1").arg(version));
+
+
+    // ТЕСТ PasswordHasher
+    //testPasswordHasher();
+
 
 
 
@@ -104,5 +129,92 @@ void MainWindow::on_btnTestHTTP_clicked()
         }
         reply->deleteLater();
     });
+}
+
+
+void MainWindow::on_btnTestDbConnect_clicked()  // Test DB connection
+{
+    bool connected = serverCore.dbManager.initialize("DSN=GuarderDB");
+
+    // bool connected = serverCore.dbManager.initialize("DRIVER={MySQL ODBC 9.5 Unicode Driver};SERVER=localhost;DATABASE=guarder_base;USER=root;PASSWORD=Qt26091968Qt");
+    QString message = connected ?
+                          "База данных подключена успешно" :
+                          "Ошибка подключения: " + QString::fromStdString(serverCore.dbManager.getLastError());
+
+    ui->txtLog->append(message);
+}
+
+
+void MainWindow::on_btnClearLogs_clicked() // Clear logs
+{
+    ui->txtLog->clear();
+}
+
+// void MainWindow::testPasswordHasher() {
+//     try {
+//         qDebug() << "=== Testing PasswordHasher ===";
+
+//         // Тест 1: Хеширование пароля
+//         std::string password = "MySecretPassword123";
+//         std::string hash = PasswordHasher::hashPassword(password);
+
+//         qDebug() << "Original password:" << password.c_str();
+//         qDebug() << "Generated hash:" << hash.c_str();
+
+//         // Тест 2: Проверка правильного пароля
+//         bool verify1 = PasswordHasher::verifyPassword(password, hash);
+//         qDebug() << "Verify correct password:" << (verify1 ? "SUCCESS" : "FAIL");
+
+//         // Тест 3: Проверка неправильного пароля
+//         bool verify2 = PasswordHasher::verifyPassword("WrongPassword", hash);
+//         qDebug() << "Verify wrong password:" << (verify2 ? "FAIL (should be false)" : "SUCCESS");
+
+//         // Тест 4: Генерация соли
+//         std::string salt = PasswordHasher::generateSalt();
+//         qDebug() << "Generated salt:" << salt.c_str();
+//         qDebug() << "Salt length:" << salt.length();
+
+//         // Вывод в GUI
+//         if (ui->txtLog) {
+//             ui->txtLog->append("=== PasswordHasher Test ===");
+//             ui->txtLog->append("Hash test: " + QString(verify1 ? "PASSED" : "FAILED"));
+//             ui->txtLog->append("Verification test: " + QString(!verify2 ? "PASSED" : "FAILED"));
+//             ui->txtLog->append("All tests completed.");
+//         }
+
+//         // Проверка формата хеша
+//         if (hash.find("pbkdf2_sha256:10000:") == 0) {
+//             qDebug() << "Hash format: CORRECT";
+//         } else {
+//             qDebug() << "Hash format: INCORRECT";
+//         }
+
+//     } catch (const std::exception& e) {
+//         qDebug() << "PasswordHasher test FAILED:" << e.what();
+//         if (ui->txtLog) {
+//             ui->txtLog->append("ERROR: " + QString(e.what()));
+//         }
+//         QMessageBox::critical(this, "Test Failed",
+//                               QString("PasswordHasher test failed: %1").arg(e.what()));
+//     }
+// }
+
+
+void MainWindow::on_pushButton_clicked()  // Log Test
+{
+    AuthResult result = serverCore.dbManager.authenticateUser("admin", "admin123");
+    if (result.success) {
+        ui->txtLog->append("Auth SUCCESS: User " + QString::fromStdString(result.name) +
+                           ", Role: " + QString::fromStdString(result.role));
+    } else {
+        ui->txtLog->append("Auth FAILED: " + QString::fromStdString(result.error_msg));
+    }
+}
+
+
+void MainWindow::on_pushButton_2_clicked()  // Test Hash
+{
+    std::string test_hash = PasswordHasher::hashPassword("admin123");
+    qDebug() << "New hash for admin123:" << test_hash.c_str();
 }
 
