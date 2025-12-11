@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>778</width>
+    <width>947</width>
     <height>722</height>
    </rect>
   </property>
@@ -205,14 +205,14 @@
       <item>
        <widget class="QPushButton" name="btnTestAPI">
         <property name="text">
-         <string>API test via HTTPS</string>
+         <string>Validate token</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="pushButton_13">
         <property name="text">
-         <string>Open a test page via HTTPS</string>
+         <string>Token test</string>
         </property>
        </widget>
       </item>
@@ -262,6 +262,9 @@
        </widget>
       </item>
       <item>
+       <widget class="QLineEdit" name="txtToken"/>
+      </item>
+      <item>
        <widget class="QPushButton" name="btnShowLogs">
         <property name="text">
          <string>Show logs</string>
@@ -287,7 +290,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>778</width>
+     <width>947</width>
      <height>22</height>
     </rect>
    </property>

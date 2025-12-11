@@ -49,7 +49,7 @@ MainWindow::MainWindow(QWidget *parent)
     // ТЕСТ PasswordHasher
     //testPasswordHasher();
 
-
+    //qDebug() << "JsonCpp version: " << JSONCPP_VERSION_STRING ;
 
 
 }
@@ -216,5 +216,64 @@ void MainWindow::on_pushButton_2_clicked()  // Test Hash
 {
     std::string test_hash = PasswordHasher::hashPassword("admin123");
     qDebug() << "New hash for admin123:" << test_hash.c_str();
+}
+
+
+void MainWindow::on_pushButton_13_clicked()  // Token test
+{
+    // 1. Сначала аутентифицируемся
+    AuthResult auth = serverCore.dbManager.authenticateUser("admin", "admin123");
+
+    // 2. Если успешно, создаем токен
+    if (auth.success) {
+        std::string token = serverCore.dbManager.createAuthToken(
+            auth.user_id,
+            "127.0.0.1",  // тестовый IP
+            "QtTestClient/1.0"  // тестовый User-Agent
+            );
+
+        ui->txtToken->setText(QString::fromStdString(token));
+
+        if (!token.empty()) {
+            ui->txtLog->append("Token created: " + QString::fromStdString(token));
+        } else {
+            ui->txtLog->append("Failed to create token");
+        }
+    }
+}
+
+
+void MainWindow::on_btnTestAPI_clicked()  // Validate token
+{
+    // Получаем токен из текстового поля (предположим, что он в ui->txtToken)
+    QString tokenText = ui->txtToken->text().trimmed();
+
+    if (tokenText.isEmpty()) {
+        ui->txtLog->append("Ошибка: Введите токен для проверки");
+        return;
+    }
+
+    // Вызываем метод validateToken
+    TokenValidationResult result = serverCore.dbManager.validateToken(tokenText.toStdString());
+
+    // Выводим результат
+    if (result.valid) {
+        QString message = QString("Токен валиден: "
+                                  "User ID=%1, "
+                                  "Логин=%2, "
+                                  "Имя=%3, "
+                                  "Роль=%4")
+                              .arg(result.user_id)
+                              .arg(QString::fromStdString(result.login))
+                              .arg(QString::fromStdString(result.name))
+                              .arg(QString::fromStdString(result.role));
+
+        ui->txtLog->append(message);
+    } else {
+        QString message = QString("Токен невалиден: %1")
+                              .arg(QString::fromStdString(result.error_msg));
+
+        ui->txtLog->append(message);
+    }
 }
 

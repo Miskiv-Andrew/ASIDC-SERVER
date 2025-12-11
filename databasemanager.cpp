@@ -139,6 +139,9 @@ std::string DatabaseManager::getLastError() const
 
 AuthResult DatabaseManager::authenticateUser(const std::string& login, const std::string& password)
 {
+    // Блокируем метод
+    std::lock_guard<std::mutex> lock(authMutex_);
+
     AuthResult result;
 
     // Проверка подключения к базе данных
@@ -226,12 +229,6 @@ AuthResult DatabaseManager::authenticateUser(const std::string& login, const std
     }
 }
 
-
-
-
-
-
-
 /**
  * @brief Устанавливает текст последней ошибки.
  *
@@ -247,4 +244,683 @@ void DatabaseManager::setLastError(const std::string& error) const
     // Выводим в стандартный поток ошибок для отладки
     // В будущем можно заменить на запись в лог-файл
     std::cerr << "[DatabaseManager Ошибка] " << error << std::endl;
+}
+
+
+
+std::string DatabaseManager::generateSecureToken(size_t length)
+{
+    // Буфер для случайных байт
+    std::vector<unsigned char> buffer(length);
+
+    // Используем криптографически безопасный генератор случайных чисел
+    std::random_device rd;
+    std::uniform_int_distribution<int> dist(0, 255);
+
+    // Заполняем буфер случайными байтами
+    for (size_t i = 0; i < length; ++i) {
+        buffer[i] = static_cast<unsigned char>(dist(rd));
+    }
+
+    // Преобразуем в hex-строку
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+
+    for (unsigned char byte : buffer) {
+        ss << std::setw(2) << static_cast<int>(byte);
+    }
+
+    return ss.str();
+}
+
+int DatabaseManager::cleanupExpiredTokens()
+{
+    if (!isConnected_) {
+        return 0;
+    }
+
+    try {
+        std::string sql = "DELETE FROM tokens WHERE expires_at < NOW()";
+        nanodbc::statement stmt(*connection_);
+        nanodbc::execute(stmt);
+
+        // Получаем количество удаленных строк
+        // (nanodbc не возвращает rows affected для DELETE,
+        // можно использовать ROW_COUNT() в MySQL)
+
+        std::cout << "[INFO] Expired tokens cleanup performed" << std::endl;
+        return 1; // В реальности нужно возвращать реальное количество
+
+    } catch (...) {
+        // Игнорируем ошибки очистки
+        return 0;
+    }
+}
+
+std::string DatabaseManager::createAuthToken(int user_id, const std::string &ip_address, const std::string &user_agent)
+{
+    std::lock_guard<std::mutex> lock(tokenMutex_);
+
+    // Проверка входных параметров
+    if (user_id <= 0) {
+        std::cerr << "[ERROR] Invalid user_id for token creation" << std::endl;
+        return "";
+    }
+
+    if (!isConnected_) {
+        std::cerr << "[ERROR] Database not connected for token creation" << std::endl;
+        return "";
+    }
+
+    try {
+        // Генерируем токен
+        std::string token = generateSecureToken(32);
+
+        // Вычисляем время истечения
+        auto now = std::chrono::system_clock::now();
+        auto expires_time = now + std::chrono::hours(24);
+        std::time_t expires_time_t = std::chrono::system_clock::to_time_t(expires_time);
+        std::tm expires_tm = *std::gmtime(&expires_time_t);
+
+        char expires_str[20];
+        std::strftime(expires_str, sizeof(expires_str),
+                      "%Y-%m-%d %H:%M:%S", &expires_tm);
+
+        // SQL запрос
+        std::string sql =
+            "INSERT INTO tokens (token, user_id, expires_at, initial_ip, user_agent) "
+            "VALUES (?, ?, ?, ?, ?)";
+
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+
+
+        // 1. Токен (строка)
+        stmt.bind(0, token.c_str());
+
+        // nanodbc ожидает указатель на данные и размер
+        stmt.bind(1, &user_id, 1);
+
+        // 3. expires_at (строка)
+        stmt.bind(2, expires_str);
+
+        // 4. IP (строка, может быть NULL)
+        if (ip_address.empty()) {
+            stmt.bind_null(3);
+        }
+
+        else {
+            stmt.bind(3, ip_address.c_str());
+        }
+
+        // 5. User-Agent (строка, может быть NULL)
+        if (user_agent.empty()) {
+            stmt.bind_null(4);
+        } else {
+            stmt.bind(4, user_agent.c_str());
+        }
+
+        // Выполняем запрос
+        nanodbc::execute(stmt);
+
+        // Очистка старых токенов
+        cleanupExpiredTokens();
+
+        return token;
+
+    }
+    catch (const nanodbc::database_error& e) {
+        std::cerr << "[ERROR] Database error creating token: " << e.what() << std::endl;
+        return "";
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ERROR] Error creating token: " << e.what() << std::endl;
+        return "";
+    }
+    catch (...) {
+        std::cerr << "[ERROR] Unknown error creating token" << std::endl;
+        return "";
+    }
+}
+
+
+void DatabaseManager::updateTokenActivity(const std::string &token)
+{
+    try {
+        std::string sql = "UPDATE tokens SET last_activity = NOW() WHERE token = ?";
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+        stmt.bind(0, token.c_str());
+        nanodbc::execute(stmt);
+    }
+
+    catch (...) {
+        // Игнорируем ошибки обновления активности
+    }
+}
+
+bool DatabaseManager::invalidateToken(const std::string& token)
+{
+    if (token.empty() || !isConnected_) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(tokenMutex_);
+
+    try {
+        std::string sql = "DELETE FROM tokens WHERE token = ?";
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+        stmt.bind(0, token.c_str());
+        nanodbc::execute(stmt);
+
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+
+TokenValidationResult DatabaseManager::validateToken(const std::string& token)
+{
+    // Проверка входных параметров
+    if (token.empty()) {
+        return TokenValidationResult("Token cannot be empty");
+    }
+
+    if (!isConnected_) {
+        return TokenValidationResult("Database not connected");
+    }
+
+    std::lock_guard<std::mutex> lock(tokenMutex_);
+
+    try {
+        // SQL запрос: проверяем токен и получаем информацию о пользователе
+        std::string sql =
+            "SELECT t.user_id, u.login, u.name, u.role, t.expires_at, t.is_suspicious "
+            "FROM tokens t "
+            "JOIN users u ON t.user_id = u.id "
+            "WHERE t.token = ?";
+
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+        stmt.bind(0, token.c_str());
+
+        nanodbc::result results = nanodbc::execute(stmt);
+
+        // Токен не найден
+        if (!results.next()) {
+            return TokenValidationResult("Token not found or expired");
+        }
+
+        // Извлекаем данные
+        int user_id;
+        std::string login, name, role, expires_at_str;
+        int is_suspicious_int;
+
+        if (!results.is_null(0)) user_id = results.get<int>(0);
+        if (!results.is_null(1)) login = results.get<std::string>(1);
+        if (!results.is_null(2)) name = results.get<std::string>(2);
+        if (!results.is_null(3)) role = results.get<std::string>(3);
+        if (!results.is_null(4)) expires_at_str = results.get<std::string>(4);
+        if (!results.is_null(5)) is_suspicious_int = results.get<int>(5);
+
+        // Проверяем не истек ли срок действия
+        // expires_at_str в формате MySQL: "YYYY-MM-DD HH:MM:SS"
+        // Сравниваем с текущим временем
+
+        // Временная проверка (упрощенно)
+        // В реальности нужно парсить expires_at_str и сравнивать с текущим временем
+
+        // Проверяем не помечен ли токен как подозрительный
+        if (is_suspicious_int == 1) {
+            return TokenValidationResult("Token marked as suspicious");
+        }
+
+        // TODO: Реальная проверка expires_at < NOW()
+        // Пока считаем что все токены с expires_at в будущем
+
+        // Обновляем last_activity
+        updateTokenActivity(token);
+
+        // Возвращаем успешный результат
+        return TokenValidationResult(user_id, role, name, login);
+
+    }
+
+    catch (const nanodbc::database_error& e) {
+        return TokenValidationResult(std::string("Database error: ") + e.what());
+    }
+
+    catch (const std::exception& e) {
+        return TokenValidationResult(std::string("Error: ") + e.what());
+    }
+
+    catch (...) {
+        return TokenValidationResult("Unknown error validating token");
+    }
+}
+
+
+
+std::vector<DatabaseManager::UserInfo> DatabaseManager::getUsersList()
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    std::vector<UserInfo> users;
+
+    if (!isConnected_) {
+        return users;
+    }
+
+    try {
+        std::string sql =
+            "SELECT id, login, name, role, phone, email, is_active, created_at "
+            "FROM users "
+            "ORDER BY id";
+
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);  // <-- ДОБАВИТЬ prepare
+        nanodbc::result results = nanodbc::execute(stmt);  // <-- БЕЗ sql
+
+        while (results.next()) {
+            UserInfo user;
+
+            if (!results.is_null(0)) user.id = results.get<int>(0);
+            if (!results.is_null(1)) user.login = results.get<std::string>(1);
+            if (!results.is_null(2)) user.name = results.get<std::string>(2);
+            if (!results.is_null(3)) user.role = results.get<std::string>(3);
+            if (!results.is_null(4)) user.phone = results.get<std::string>(4);
+            if (!results.is_null(5)) user.email = results.get<std::string>(5);
+            if (!results.is_null(6)) user.is_active = results.get<int>(6) == 1;
+            if (!results.is_null(7)) user.created_at = results.get<std::string>(7);
+
+            users.push_back(user);
+        }
+
+        return users;
+
+    }
+    catch (const std::exception& e) {
+        setLastError(std::string("Failed to get users list: ") + e.what());
+        std::cerr << "[ERROR] getUsersList: " << e.what() << std::endl;  // ДОБАВИТЬ
+        return users;
+    }
+}
+
+
+DatabaseManager::CreateUserResult DatabaseManager::createUser(
+    const std::string& login, const std::string& password,
+    const std::string& name, const std::string& role,
+    const std::string& phone, const std::string& email)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    CreateUserResult result;
+
+    if (!isConnected_) {
+        result.error_msg = "Database not connected";
+        return result;
+    }
+
+    // Валидация входных данных
+    if (login.empty() || password.empty() || name.empty() || role.empty()) {
+        result.error_msg = "Login, password, name and role are required";
+        return result;
+    }
+
+    if (role != "admin" && role != "operator" && role != "executor") {
+        result.error_msg = "Invalid role. Must be: admin, operator, executor";
+        return result;
+    }
+
+    try {
+        // Проверяем, не существует ли уже такой логин
+        std::string checkSql = "SELECT COUNT(*) FROM users WHERE login = ?";
+        nanodbc::statement checkStmt(*connection_);
+        nanodbc::prepare(checkStmt, checkSql);
+        checkStmt.bind(0, login.c_str());
+
+        nanodbc::result checkResult = checkStmt.execute();
+        if (checkResult.next()) {
+            int count = checkResult.get<int>(0);
+            if (count > 0) {
+                result.error_msg = "Login already exists";
+                return result;
+            }
+        }
+
+        // Генерируем хеш пароля
+        std::string passwordHash = PasswordHasher::hashPassword(password);
+
+        // Извлекаем соль из хеша (формат: алгоритм:итерации:соль:хеш)
+        size_t pos1 = passwordHash.find(':');
+        size_t pos2 = passwordHash.find(':', pos1 + 1);
+        size_t pos3 = passwordHash.find(':', pos2 + 1);
+
+        if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos) {
+            result.error_msg = "Password hash generation failed";
+            return result;
+        }
+
+        std::string salt = passwordHash.substr(pos2 + 1, pos3 - pos2 - 1);
+
+        // Вставляем пользователя в БД
+        std::string insertSql =
+            "INSERT INTO users (login, name, role, phone, email, password_hash, salt, is_active) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1)";
+
+        nanodbc::statement insertStmt(*connection_);
+        nanodbc::prepare(insertStmt, insertSql);
+
+        insertStmt.bind(0, login.c_str());
+        insertStmt.bind(1, name.c_str());
+        insertStmt.bind(2, role.c_str());
+
+        if (phone.empty()) {
+            insertStmt.bind_null(3);
+        } else {
+            insertStmt.bind(3, phone.c_str());
+        }
+
+        if (email.empty()) {
+            insertStmt.bind_null(4);
+        } else {
+            insertStmt.bind(4, email.c_str());
+        }
+
+        insertStmt.bind(5, passwordHash.c_str());
+        insertStmt.bind(6, salt.c_str());
+
+        nanodbc::execute(insertStmt);
+
+        // Получаем ID созданного пользователя
+        std::string getIdSql = "SELECT LAST_INSERT_ID()";
+
+        nanodbc::statement idStmt(*connection_);
+        nanodbc::prepare(idStmt, getIdSql);
+        nanodbc::result idResult = idStmt.execute();
+
+        if (idResult.next()) {
+            result.user_id = idResult.get<int>(0);
+        }
+
+        result.success = true;
+        return result;
+
+    } catch (const nanodbc::database_error& e) {
+        result.error_msg = std::string("Database error: ") + e.what();
+        return result;
+    } catch (const std::exception& e) {
+        result.error_msg = std::string("Error: ") + e.what();
+        return result;
+    }
+}
+
+
+DatabaseManager::UpdateUserResult DatabaseManager::updateUser(
+    int user_id, const std::string& name, const std::string& role,
+    const std::string& phone, const std::string& email, bool is_active)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    UpdateUserResult result;
+
+    if (!isConnected_) {
+        result.error_msg = "Database not connected";
+        return result;
+    }
+
+    if (user_id <= 0) {
+        result.error_msg = "Invalid user ID";
+        return result;
+    }
+
+    try {
+        // Проверяем существование пользователя
+        std::string checkSql = "SELECT COUNT(*) FROM users WHERE id = ?";
+        nanodbc::statement checkStmt(*connection_);
+        nanodbc::prepare(checkStmt, checkSql);
+        checkStmt.bind(0, &user_id, 1);
+
+        nanodbc::result checkResult = checkStmt.execute();
+        if (checkResult.next()) {
+            int count = checkResult.get<int>(0);
+            if (count == 0) {
+                result.error_msg = "User not found";
+                return result;
+            }
+        }
+
+        // Проверка роли
+        if (!role.empty() && role != "admin" && role != "operator" && role != "executor") {
+            result.error_msg = "Invalid role. Must be: admin, operator, executor";
+            return result;
+        }
+
+        // Формируем динамический SQL запрос
+        std::vector<std::string> updates;
+        std::vector<nanodbc::statement> bindStatements;
+
+        if (!name.empty()) {
+            updates.push_back("name = ?");
+        }
+        if (!role.empty()) {
+            updates.push_back("role = ?");
+        }
+        if (!phone.empty()) {
+            updates.push_back("phone = ?");
+        }
+        if (!email.empty()) {
+            updates.push_back("email = ?");
+        }
+        updates.push_back("is_active = ?");
+
+        if (updates.empty()) {
+            result.error_msg = "No fields to update";
+            return result;
+        }
+
+        std::string sql = "UPDATE users SET ";
+        for (size_t i = 0; i < updates.size(); ++i) {
+            sql += updates[i];
+            if (i < updates.size() - 1) {
+                sql += ", ";
+            }
+        }
+        sql += " WHERE id = ?";
+
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+
+        int bindIndex = 0;
+        if (!name.empty()) {
+            stmt.bind(bindIndex++, name.c_str());
+        }
+        if (!role.empty()) {
+            stmt.bind(bindIndex++, role.c_str());
+        }
+        if (!phone.empty()) {
+            stmt.bind(bindIndex++, phone.c_str());
+        }
+        if (!email.empty()) {
+            stmt.bind(bindIndex++, email.c_str());
+        }
+
+        int active_int = is_active ? 1 : 0;
+        stmt.bind(bindIndex++, &active_int, 1);
+        stmt.bind(bindIndex++, &user_id, 1);
+
+        nanodbc::execute(stmt);
+
+        result.success = true;
+        return result;
+
+    } catch (const nanodbc::database_error& e) {
+        result.error_msg = std::string("Database error: ") + e.what();
+        return result;
+    } catch (const std::exception& e) {
+        result.error_msg = std::string("Error: ") + e.what();
+        return result;
+    }
+}
+
+
+DatabaseManager::DeleteUserResult DatabaseManager::deleteUser(int user_id)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+    DeleteUserResult result;
+
+    if (!isConnected_) {
+        result.error_msg = "Database not connected";
+        return result;
+    }
+
+    if (user_id <= 0) {
+        result.error_msg = "Invalid user ID";
+        return result;
+    }
+
+    try {
+        // Проверяем существование пользователя
+        std::string checkSql = "SELECT COUNT(*) FROM users WHERE id = ?";
+        nanodbc::statement checkStmt(*connection_);
+        nanodbc::prepare(checkStmt, checkSql);
+        checkStmt.bind(0, &user_id, 1);
+
+        nanodbc::result checkResult = checkStmt.execute();
+        if (checkResult.next()) {
+            int count = checkResult.get<int>(0);
+            if (count == 0) {
+                result.error_msg = "User not found";
+                return result;
+            }
+        }
+
+        // Деактивируем пользователя (is_active = 0)
+        std::string updateSql = "UPDATE users SET is_active = 0 WHERE id = ?";
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, updateSql);
+        stmt.bind(0, &user_id, 1);
+
+        stmt.execute();
+
+        // Удаляем все активные токены пользователя
+        std::string deleteTokensSql = "DELETE FROM tokens WHERE user_id = ?";
+        nanodbc::statement tokenStmt(*connection_);
+        nanodbc::prepare(tokenStmt, deleteTokensSql);
+        tokenStmt.bind(0, &user_id, 1);
+        tokenStmt.execute();
+
+        result.success = true;
+        return result;
+
+    } catch (const nanodbc::database_error& e) {
+        result.error_msg = std::string("Database error: ") + e.what();
+        return result;
+    } catch (const std::exception& e) {
+        result.error_msg = std::string("Error: ") + e.what();
+        return result;
+    }
+}
+
+DatabaseManager::ChangePasswordResult DatabaseManager::changePassword(
+    int user_id, const std::string& old_password, const std::string& new_password)
+{
+    std::lock_guard<std::mutex> lock(authMutex_);
+    ChangePasswordResult result;
+
+    if (!isConnected_) {
+        result.error_msg = "Database not connected";
+        return result;
+    }
+
+    if (user_id <= 0 || old_password.empty() || new_password.empty()) {
+        result.error_msg = "Invalid parameters";
+        return result;
+    }
+
+    // Проверка сложности нового пароля (минимум 8 символов)
+    if (new_password.length() < 8) {
+        result.error_msg = "New password must be at least 8 characters long";
+        return result;
+    }
+
+    try {
+        // Получаем текущий хеш пароля
+        std::string sql = "SELECT password_hash FROM users WHERE id = ? AND is_active = 1";
+        nanodbc::statement stmt(*connection_);
+        nanodbc::prepare(stmt, sql);
+        stmt.bind(0, &user_id, 1);
+
+        nanodbc::result results = stmt.execute();
+
+        if (!results.next()) {
+            result.error_msg = "User not found or inactive";
+            return result;
+        }
+
+        std::string current_hash;
+        if (!results.is_null(0)) {
+            current_hash = results.get<std::string>(0);
+        }
+
+        if (current_hash.empty()) {
+            result.error_msg = "Password hash not found";
+            return result;
+        }
+
+        // Проверяем старый пароль
+        if (!PasswordHasher::verifyPassword(old_password, current_hash)) {
+            result.error_msg = "Current password is incorrect";
+            return result;
+        }
+
+        // Старый и новый пароль не должны совпадать
+        if (old_password == new_password) {
+            result.error_msg = "New password must be different from current password";
+            return result;
+        }
+
+        // Генерируем новый хеш
+        std::string new_hash = PasswordHasher::hashPassword(new_password);
+
+        // Извлекаем соль из нового хеша
+        size_t pos1 = new_hash.find(':');
+        size_t pos2 = new_hash.find(':', pos1 + 1);
+        size_t pos3 = new_hash.find(':', pos2 + 1);
+
+        if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos) {
+            result.error_msg = "Password hash generation failed";
+            return result;
+        }
+
+        std::string new_salt = new_hash.substr(pos2 + 1, pos3 - pos2 - 1);
+
+        // Обновляем пароль в БД
+        std::string updateSql = "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?";
+        nanodbc::statement updateStmt(*connection_);
+        nanodbc::prepare(updateStmt, updateSql);
+
+        updateStmt.bind(0, new_hash.c_str());
+        updateStmt.bind(1, new_salt.c_str());
+        updateStmt.bind(2, &user_id, 1);
+
+        updateStmt.execute();
+
+        // Удаляем все активные токены пользователя (принудительный выход со всех устройств)
+        std::string deleteTokensSql = "DELETE FROM tokens WHERE user_id = ?";
+        nanodbc::statement tokenStmt(*connection_);
+        nanodbc::prepare(tokenStmt, deleteTokensSql);
+        tokenStmt.bind(0, &user_id, 1);
+        tokenStmt.execute();
+
+        result.success = true;
+        return result;
+
+    } catch (const nanodbc::database_error& e) {
+        result.error_msg = std::string("Database error: ") + e.what();
+        return result;
+    } catch (const std::exception& e) {
+        result.error_msg = std::string("Error: ") + e.what();
+        return result;
+    }
 }

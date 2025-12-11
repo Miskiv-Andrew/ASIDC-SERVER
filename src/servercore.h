@@ -8,6 +8,8 @@
 
 #include ".//databasemanager.h"
 
+#include <json/json.h>
+
 class ServerCore
 {
 public:
@@ -32,12 +34,51 @@ private:
 
     // методы для обработки запросов
     static int handleRequest(struct mg_connection* conn);
-    static void handleRootRequest(struct mg_connection* conn);
-    static void handleApiStatus(struct mg_connection* conn);
-    static void handleApiTest(struct mg_connection* conn);
+
+    static void handlePostRoot(struct mg_connection* conn);
+
+    static void handlePostStatus(struct mg_connection* conn);
+
+    static void handlePostTest(struct mg_connection* conn);
+
+    // Новые обработчики для аутентификации
+    static void handlePostAuthLogin(mg_connection* conn);
+
+    static void handlePostAuthValidate(mg_connection* conn);
+
     static void sendResponse(struct mg_connection* conn, const std::string& content, const std::string& contentType = "text/plain");
 
     static std::string getCurrentTime();
+
+    // Новые вспомогательные методы для работы с HTTP и JSON
+    static std::string readRequestBody(mg_connection* conn);
+
+    static bool parseJsonRequest(const std::string& jsonStr, Json::Value& jsonValue, std::string& errorMsg);
+
+    static void sendJsonResponse(mg_connection* conn, const Json::Value& jsonData, int statusCode = 200);
+
+
+    // Middleware для проверки аутентификации
+    static bool authenticateRequest(mg_connection* conn,
+                                    TokenValidationResult& tokenData,
+                                    const std::string& requiredRole = "executor");
+
+    // Проверка прав доступа по роли
+    static bool checkPermissions(const TokenValidationResult& tokenData,
+                                 const std::string& requiredRole);
+
+
+    static void handlePostAuthLogout(mg_connection* conn);
+
+    static void handlePostUsersList(mg_connection* conn);
+
+    static void handlePostUsersCreate(mg_connection* conn);
+
+    static void handlePostUsersUpdate(mg_connection* conn);
+
+    static void handlePostUsersDelete(mg_connection* conn);
+
+    static void handlePostAuthChangePassword(mg_connection* conn);
 
 
     void* serverContext;  // Указатель на mg_context (void* для независимости от Qt)
@@ -46,7 +87,7 @@ private:
     int currentPort;
 
     LogCallback logCallback_;
-    void logMessage(const std::string& message);
+    static void logMessage(const std::string& message);
     static ServerCore* currentInstance;
 };
 

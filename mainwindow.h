@@ -13,6 +13,8 @@
 
 #include <openssl/crypto.h>
 
+#include <json/version.h>
+
 
 
 
@@ -50,6 +52,10 @@ private slots:
     void on_pushButton_clicked();
 
     void on_pushButton_2_clicked();
+
+    void on_pushButton_13_clicked();
+
+    void on_btnTestAPI_clicked();
 
 private:
 
