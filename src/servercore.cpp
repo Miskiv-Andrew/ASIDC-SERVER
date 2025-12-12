@@ -5,6 +5,7 @@
 #include <ctime>
 #include <unordered_map>
 #include <mutex>
+#include <fstream>
 
 
 
@@ -122,12 +123,6 @@ public:
 
 
 
-
-
-
-
-
-
 static RateLimiter g_rateLimiter;
 
 
@@ -155,19 +150,23 @@ bool ServerCore::startServer(int port)
         stopServer();
     }
 
-    std::string port_str = std::to_string(port);
+    std::string pem_path = "D:\\SERVERS\\Qt projects\\stage_1\\CV_WEB\\src\\ssl_certs\\server.pem";
+    std::string ports_str = std::to_string(port) + ",8443s";
+
     const char *options[] = {
-        "listening_ports", port_str.c_str(),
+        "listening_ports", ports_str.c_str(),
+        "ssl_certificate", pem_path.c_str(),
         "num_threads", "5",
         NULL
     };
 
     // Создаем структуру callback-функций
     struct mg_callbacks callbacks;
-    memset(&callbacks, 0, sizeof(callbacks)); // Обнуляем структуру
-    callbacks.begin_request = handleRequest;  // Регистрируем наш обработчик
+    memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.begin_request = handleRequest;
 
-    serverContext = mg_start(&callbacks, NULL, options); // Передаем callbacks
+
+    serverContext = mg_start(&callbacks, NULL, options);
 
     if (!serverContext) {
         lastError = "mg_start returned NULL";
@@ -179,8 +178,7 @@ bool ServerCore::startServer(int port)
     currentPort = port;
     lastError.clear();
 
-    // Тестовый вывод
-    logMessage("HTTP server with request handler started on port " + std::to_string(port));
+    // logMessage("HTTP/HTTPS server started on ports " + ports_str);
     return true;
 
 }
@@ -275,6 +273,10 @@ int ServerCore::handleRequest(mg_connection *conn)
 
     else if (uri == "/api/auth/change-password") {
         handlePostAuthChangePassword(conn);
+    }
+
+    else if (uri == "/api/auth/refresh") {
+        handlePostAuthRefresh(conn);
     }
 
     else {
@@ -1188,4 +1190,90 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
     }
 
     sendJsonResponse(conn, successResp, 200);
+}
+
+
+
+void ServerCore::handlePostAuthRefresh(mg_connection* conn)
+{
+    // 1. Проверка currentInstance
+    if (!currentInstance) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Server instance not available";
+        sendJsonResponse(conn, errorResp, 500);
+        return;
+    }
+
+    // 2. Проверка подключения к БД
+    if (!currentInstance->dbManager.isConnected()) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Database not connected";
+        sendJsonResponse(conn, errorResp, 500);
+        return;
+    }
+
+    // 3. Извлекаем старый токен из заголовка Authorization
+    const struct mg_request_info* req_info = mg_get_request_info(conn);
+    std::string authHeader = "";
+
+    for (int i = 0; i < req_info->num_headers; i++) {
+        if (strcmp(req_info->http_headers[i].name, "Authorization") == 0) {
+            authHeader = req_info->http_headers[i].value;
+            break;
+        }
+    }
+
+    // 4. Проверяем формат: "Bearer <token>"
+    if (authHeader.empty() || authHeader.find("Bearer ") != 0) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Authorization header missing or invalid format. Use: Bearer <token>";
+        sendJsonResponse(conn, errorResp, 401);
+        return;
+    }
+
+    // 5. Извлекаем старый токен
+    std::string old_token = authHeader.substr(7); // "Bearer ".length() = 7
+
+    // 6. Вызываем метод обновления токена
+    DatabaseManager::RefreshTokenResult refreshResult =
+        currentInstance->dbManager.refreshAuthToken(old_token);
+
+    // 7. Формирование ответа
+    if (!refreshResult.success) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = refreshResult.error_msg;
+
+        // Определяем код ошибки
+        int statusCode = 400;
+        if (refreshResult.error_msg.find("Token not found") != std::string::npos ||
+            refreshResult.error_msg.find("suspicious") != std::string::npos) {
+            statusCode = 401;
+        }
+
+        sendJsonResponse(conn, errorResp, statusCode);
+        logMessage("Token refresh failed: " + refreshResult.error_msg);
+        return;
+    }
+
+    // 8. Успешный ответ
+    Json::Value successResp;
+    successResp["status"] = "success";
+    successResp["message"] = "Token refreshed successfully";
+
+    Json::Value data;
+    data["token"] = refreshResult.new_token;
+    data["user_id"] = refreshResult.user_id;
+    data["login"] = refreshResult.login;
+    data["name"] = refreshResult.name;
+    data["role"] = refreshResult.role;
+
+    successResp["data"] = data;
+
+    sendJsonResponse(conn, successResp, 200);
+    logMessage("Token refreshed for user: " + refreshResult.login +
+               " (old_token: " + old_token.substr(0, 8) + "...)");
 }

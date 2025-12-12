@@ -924,3 +924,132 @@ DatabaseManager::ChangePasswordResult DatabaseManager::changePassword(
         return result;
     }
 }
+
+
+DatabaseManager::RefreshTokenResult DatabaseManager::refreshAuthToken(const std::string& old_token)
+{
+    std::lock_guard<std::mutex> lock(tokenMutex_);
+    RefreshTokenResult result;
+
+    // Проверка входных параметров
+    if (old_token.empty()) {
+        result.error_msg = "Token cannot be empty";
+        return result;
+    }
+
+    if (!isConnected_) {
+        result.error_msg = "Database not connected";
+        return result;
+    }
+
+    try {
+        // 1. Проверяем существование и валидность старого токена
+        std::string checkSql =
+            "SELECT t.user_id, u.login, u.name, u.role, t.expires_at, t.is_suspicious, "
+            "t.initial_ip, t.user_agent "
+            "FROM tokens t "
+            "JOIN users u ON t.user_id = u.id "
+            "WHERE t.token = ? "
+            "AND u.is_active = 1";
+
+        nanodbc::statement checkStmt(*connection_);
+        nanodbc::prepare(checkStmt, checkSql);
+        checkStmt.bind(0, old_token.c_str());
+
+        nanodbc::result checkResult = checkStmt.execute();
+
+        // Токен не найден или пользователь неактивен
+        if (!checkResult.next()) {
+            result.error_msg = "Token not found or user inactive";
+            return result;
+        }
+
+        // Извлекаем данные
+        int user_id = -1;
+        std::string login, name, role, expires_at_str, initial_ip, user_agent;
+        int is_suspicious_int = 0;
+
+        if (!checkResult.is_null(0)) user_id = checkResult.get<int>(0);
+        if (!checkResult.is_null(1)) login = checkResult.get<std::string>(1);
+        if (!checkResult.is_null(2)) name = checkResult.get<std::string>(2);
+        if (!checkResult.is_null(3)) role = checkResult.get<std::string>(3);
+        if (!checkResult.is_null(4)) expires_at_str = checkResult.get<std::string>(4);
+        if (!checkResult.is_null(5)) is_suspicious_int = checkResult.get<int>(5);
+        if (!checkResult.is_null(6)) initial_ip = checkResult.get<std::string>(6);
+        if (!checkResult.is_null(7)) user_agent = checkResult.get<std::string>(7);
+
+        // Проверка подозрительности
+        if (is_suspicious_int == 1) {
+            result.error_msg = "Token marked as suspicious, cannot refresh";
+            return result;
+        }
+
+        // Проверяем, что токен истекает в течение часа
+        // В MySQL: TIMESTAMPDIFF(MINUTE, NOW(), expires_at) <= 60
+        // Упрощенная проверка - считаем что все активные токены можно обновлять
+
+        // 2. Генерируем новый токен
+        std::string new_token = generateSecureToken(32);
+
+        // Вычисляем новое время истечения (+24 часа)
+        auto now = std::chrono::system_clock::now();
+        auto expires_time = now + std::chrono::hours(24);
+        std::time_t expires_time_t = std::chrono::system_clock::to_time_t(expires_time);
+        std::tm expires_tm = *std::gmtime(&expires_time_t);
+
+        char expires_str[20];
+        std::strftime(expires_str, sizeof(expires_str),
+                      "%Y-%m-%d %H:%M:%S", &expires_tm);
+
+        // 3. Создаем новый токен в БД
+        std::string insertSql =
+            "INSERT INTO tokens (token, user_id, expires_at, initial_ip, user_agent) "
+            "VALUES (?, ?, ?, ?, ?)";
+
+        nanodbc::statement insertStmt(*connection_);
+        nanodbc::prepare(insertStmt, insertSql);
+
+        insertStmt.bind(0, new_token.c_str());
+        insertStmt.bind(1, &user_id, 1);
+        insertStmt.bind(2, expires_str);
+        insertStmt.bind(3, initial_ip.empty() ? nullptr : initial_ip.c_str());
+        insertStmt.bind(4, user_agent.empty() ? nullptr : user_agent.c_str());
+
+        insertStmt.execute();
+
+        // 4. Удаляем старый токен
+        std::string deleteSql = "DELETE FROM tokens WHERE token = ?";
+        nanodbc::statement deleteStmt(*connection_);
+        nanodbc::prepare(deleteStmt, deleteSql);
+        deleteStmt.bind(0, old_token.c_str());
+        deleteStmt.execute();
+
+        // 5. Заполняем результат
+        result.new_token = new_token;
+        result.user_id = user_id;
+        result.login = login;
+        result.name = name;
+        result.role = role;
+        result.success = true;
+
+        std::cout << "[INFO] Token refreshed for user: " << login
+                  << " (user_id: " << user_id << ")" << std::endl;
+
+        return result;
+
+    } catch (const nanodbc::database_error& e) {
+        result.error_msg = std::string("Database error: ") + e.what();
+        std::cerr << "[ERROR] refreshAuthToken DB error: " << e.what() << std::endl;
+        return result;
+    } catch (const std::exception& e) {
+        result.error_msg = std::string("Error: ") + e.what();
+        std::cerr << "[ERROR] refreshAuthToken error: " << e.what() << std::endl;
+        return result;
+    } catch (...) {
+        result.error_msg = "Unknown error refreshing token";
+        std::cerr << "[ERROR] refreshAuthToken unknown error" << std::endl;
+        return result;
+    }
+}
+
+

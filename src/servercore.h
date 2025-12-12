@@ -80,6 +80,8 @@ private:
 
     static void handlePostAuthChangePassword(mg_connection* conn);
 
+    static void handlePostAuthRefresh(mg_connection* conn);
+
 
     void* serverContext;  // Указатель на mg_context (void* для независимости от Qt)
     bool serverRunning;

@@ -274,7 +274,20 @@ public:
         std::string error_msg;
     };
 
+    // В начале файла, после других структур:
+    struct RefreshTokenResult {
+        std::string new_token;
+        int user_id;
+        std::string role;
+        std::string name;
+        std::string login;
+        bool success;
+        std::string error_msg;
 
+        RefreshTokenResult() : user_id(0), success(false) {}
+        RefreshTokenResult(const std::string& error)
+            : user_id(0), success(false), error_msg(error) {}
+    };
 
     std::vector<UserInfo> getUsersList();
 
@@ -295,6 +308,9 @@ public:
     ChangePasswordResult changePassword(int user_id,
                                         const std::string& old_password,
                                         const std::string& new_password);
+
+
+    RefreshTokenResult refreshAuthToken(const std::string& old_token);
 
 
 private:
