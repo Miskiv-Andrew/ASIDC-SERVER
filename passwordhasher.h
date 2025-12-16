@@ -2,6 +2,7 @@
 #define PASSWORDHASHER_H
 
 #include <string>
+#include <vector>
 
 /**
  * @class PasswordHasher
@@ -44,6 +45,58 @@ public:
      */
     static std::string generateSalt(int length = 16);
 
+
+
+    /**
+     * @brief Проверяет сложность пароля по политике безопасности.
+     *
+     * Требования к паролю:
+     * 1. Минимум 8 символов
+     * 2. Хотя бы одна заглавная буква
+     * 3. Хотя бы одна строчная буква
+     * 4. Хотя бы одна цифра
+     * 5. Хотя бы один специальный символ
+     * 6. Не должен быть в списке распространенных слабых паролей
+     *
+     * @param password Пароль для проверки.
+     * @param error_msg[out] Сообщение об ошибке если пароль не соответствует требованиям.
+     * @return true если пароль соответствует политике безопасности.
+     */
+    static bool validatePasswordComplexity(const std::string& password,
+                                           std::string& error_msg);
+
+
+
+    /**
+     * @brief Вычисляет силу пароля (0-100 баллов).
+     *
+     * Критерии оценки:
+     * - Длина пароля
+     * - Разнообразие символов (буквы, цифры, специальные символы)
+     * - Отсутствие последовательностей (qwerty, 12345 и т.д.)
+     * - Отсутствие личной информации (логин, имя и т.д.)
+     *
+     * @param password Пароль для оценки.
+     * @param user_login Логин пользователя (для проверки совпадений).
+     * @return Оценка от 0 (очень слабый) до 100 (очень сильный).
+     */
+    static int calculatePasswordStrength(const std::string& password,
+                                         const std::string& user_login = "");
+
+
+
+
+    /**
+     * @brief Генерирует случайный безопасный пароль.
+     *
+     * @param length Длина пароля (по умолчанию 12 символов).
+     * @return Случайный пароль, соответствующий политике безопасности.
+     */
+    static std::string generateSecurePassword(int length = 12);
+
+
+
+
 private:
     // Константы для алгоритма
     static const int PBKDF2_ITERATIONS = 10000;  // Количество итераций PBKDF2
@@ -66,6 +119,22 @@ private:
      * @return Длина декодированных данных или -1 при ошибке.
      */
     static int base64Decode(const std::string& input, unsigned char* output);
+
+
+
+    // Новые приватные методы для валидации
+    static bool hasUpperCase(const std::string& str);
+    static bool hasLowerCase(const std::string& str);
+    static bool hasDigits(const std::string& str);
+    static bool hasSpecialChars(const std::string& str);
+    static bool isCommonPassword(const std::string& password);
+    static bool containsSequence(const std::string& password);
+    static bool containsLogin(const std::string& password, const std::string& login);
+
+
+
+    // Список распространенных слабых паролей
+    static const std::vector<std::string>& getCommonPasswords();
 };
 
 #endif // PASSWORDHASHER_H

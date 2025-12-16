@@ -65,8 +65,8 @@ void MainWindow::on_btnStartServer_clicked() // Server start
     if (port <= 0) port = 8080;
 
     if (serverCore.startServer(port)) {
-        ui->lblStatus->setText("HTTP Server running on port " + QString::number(port));
-        ui->txtLog->append("Server started on port " + QString::number(port));
+        // ui->lblStatus->setText("HTTP Server running on port " + QString::number(port));
+        // ui->txtLog->append("Server started on port " + QString::number(port));
     } else {
         ui->lblStatus->setText("Server failed: " + QString::fromStdString(serverCore.getLastError()));
         ui->txtLog->append("Server start failed: " + QString::fromStdString(serverCore.getLastError()));
@@ -214,8 +214,8 @@ void MainWindow::on_pushButton_clicked()  // Log Test
 
 void MainWindow::on_pushButton_2_clicked()  // Test Hash
 {
-    std::string test_hash = PasswordHasher::hashPassword("admin123");
-    qDebug() << "New hash for admin123:" << test_hash.c_str();
+    std::string test_hash = PasswordHasher::hashPassword("Admin@123456");
+    qDebug() << "New hash for Admin@123456:" << test_hash.c_str();
 }
 
 

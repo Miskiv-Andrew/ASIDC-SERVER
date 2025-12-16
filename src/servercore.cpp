@@ -143,15 +143,15 @@ ServerCore::~ServerCore()
     currentInstance = nullptr;
 }
 
+
 bool ServerCore::startServer(int port)
 {
-
     if (serverRunning) {
         stopServer();
     }
 
     std::string pem_path = "D:\\SERVERS\\Qt projects\\stage_1\\CV_WEB\\src\\ssl_certs\\server.pem";
-    std::string ports_str = std::to_string(port) + ",8443s";
+    std::string ports_str = "8443s";  // ТОЛЬКО HTTPS порт, HTTP отключен
 
     const char *options[] = {
         "listening_ports", ports_str.c_str(),
@@ -165,7 +165,6 @@ bool ServerCore::startServer(int port)
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.begin_request = handleRequest;
 
-
     serverContext = mg_start(&callbacks, NULL, options);
 
     if (!serverContext) {
@@ -175,12 +174,11 @@ bool ServerCore::startServer(int port)
     }
 
     serverRunning = true;
-    currentPort = port;
+    currentPort = 8443;  // Устанавливаем порт HTTPS
     lastError.clear();
 
-    // logMessage("HTTP/HTTPS server started on ports " + ports_str);
+    logMessage("HTTPS server started on ports " + ports_str);
     return true;
-
 }
 
 void ServerCore::stopServer()
@@ -250,9 +248,11 @@ int ServerCore::handleRequest(mg_connection *conn)
     else if (uri == "/api/auth/login") {
         handlePostAuthLogin(conn);
     }
-    else if (uri == "/api/auth/validate") {
-        handlePostAuthValidate(conn);
-    }
+
+    // else if (uri == "/api/auth/validate") {
+    //     handlePostAuthValidate(conn);
+    // }
+
     else if (uri == "/api/auth/logout") {
         handlePostAuthLogout(conn);
     }
@@ -332,6 +332,138 @@ void ServerCore::handlePostTest(mg_connection *conn)
                            "}";
     sendResponse(conn, response, "application/json");
 }
+
+
+
+// void ServerCore::handlePostAuthLogin(mg_connection* conn)
+// {
+//     // === ПРОВЕРКА 1: currentInstance ===
+//     if (!currentInstance) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Server instance not available";
+//         sendJsonResponse(conn, errorResp, 500);
+//         return;
+//     }
+
+//     // === ПРОВЕРКА 2: База данных подключена ===
+//     if (!currentInstance->dbManager.isConnected()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Database not connected";
+//         sendJsonResponse(conn, errorResp, 500);
+//         return;
+//     }
+
+//     // 1. Получить IP и User-Agent
+//     const struct mg_request_info* req_info = mg_get_request_info(conn);
+//     std::string client_ip = req_info->remote_addr ? req_info->remote_addr : "";
+//     std::string user_agent = "";
+
+//     // Если IP пустой - используем заглушку
+//     if (client_ip.empty()) {
+//         client_ip = "unknown";
+//     }
+
+//     // Rate limiting проверка
+//     auto rateLimitResult = g_rateLimiter.checkRequest(client_ip, false);
+//     if (!rateLimitResult.first) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = rateLimitResult.second;
+//         sendJsonResponse(conn, errorResp, 429); // 429 Too Many Requests
+//         logMessage("Rate limit exceeded for IP: " + client_ip);
+//         return;
+//     }
+
+//     // Получить User-Agent из заголовков
+//     for (int i = 0; i < req_info->num_headers; i++) {
+//         if (strcmp(req_info->http_headers[i].name, "User-Agent") == 0) {
+//             user_agent = req_info->http_headers[i].value;
+//             break;
+//         }
+//     }
+
+//     // 2. Читаем тело запроса
+//     std::string requestBody = readRequestBody(conn);
+//     if (requestBody.empty()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Empty request body";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     // 3. Парсим JSON
+//     Json::Value jsonRequest;
+//     std::string parseError;
+//     if (!parseJsonRequest(requestBody, jsonRequest, parseError)) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = parseError;
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     // 4. Проверяем поля
+//     if (!jsonRequest.isMember("login") || !jsonRequest.isMember("password")) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Missing login or password field";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     std::string login = jsonRequest["login"].asString();
+//     std::string password = jsonRequest["password"].asString();
+
+//     // 5. Аутентификация через DatabaseManager
+//     AuthResult authResult = currentInstance->dbManager.authenticateUser(login, password);
+
+//     if (!authResult.success) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = authResult.error_msg;
+//         sendJsonResponse(conn, errorResp, 401);
+//         logMessage("Failed login attempt for user: " + login);
+//         return;
+//     }
+
+//     // Успешный вход - отмечаем в rate limiter
+//     g_rateLimiter.checkRequest(client_ip, true);
+
+//     // 6. Создание токена
+//     std::string token = currentInstance->dbManager.createAuthToken(
+//         authResult.user_id,
+//         client_ip,
+//         user_agent
+//         );
+
+//     if (token.empty()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Failed to create authentication token";
+//         sendJsonResponse(conn, errorResp, 500);
+//         return;
+//     }
+
+//     // 7. Успешный ответ
+//     Json::Value successResp;
+//     successResp["status"] = "success";
+//     successResp["message"] = "Authentication successful";
+
+//     Json::Value data;
+//     data["token"] = token;
+//     data["user_id"] = authResult.user_id;
+//     data["name"] = escapeHtmlForJson(authResult.name);
+//     data["role"] = authResult.role;
+
+//     successResp["data"] = data;
+
+//     sendJsonResponse(conn, successResp, 200);
+//     logMessage("Successful login for user: " + login + " (role: " + authResult.role + ")");
+// }
+
 
 void ServerCore::handlePostAuthLogin(mg_connection* conn)
 {
@@ -445,15 +577,15 @@ void ServerCore::handlePostAuthLogin(mg_connection* conn)
         return;
     }
 
-    // 7. Успешный ответ
+    // 7. Успешный ответ (БЕЗ user_id)
     Json::Value successResp;
     successResp["status"] = "success";
     successResp["message"] = "Authentication successful";
 
     Json::Value data;
     data["token"] = token;
-    data["user_id"] = authResult.user_id;
-    data["name"] = authResult.name;
+    // user_id убран из ответа - внутренний идентификатор БД не раскрывается клиенту
+    data["name"] = escapeHtmlForJson(authResult.name);
     data["role"] = authResult.role;
 
     successResp["data"] = data;
@@ -462,92 +594,114 @@ void ServerCore::handlePostAuthLogin(mg_connection* conn)
     logMessage("Successful login for user: " + login + " (role: " + authResult.role + ")");
 }
 
-void ServerCore::handlePostAuthValidate(mg_connection* conn)
-{
-    // 1. Проверка currentInstance
-    if (!currentInstance) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = "Server instance not available";
-        sendJsonResponse(conn, errorResp, 500);
-        return;
-    }
 
-    // 2. Проверка подключения к БД
-    if (!currentInstance->dbManager.isConnected()) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = "Database not connected";
-        sendJsonResponse(conn, errorResp, 500);
-        return;
-    }
 
-    // 3. Чтение тела запроса
-    std::string requestBody = readRequestBody(conn);
-    if (requestBody.empty()) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = "Empty request body";
-        sendJsonResponse(conn, errorResp, 400);
-        return;
-    }
+// void ServerCore::handlePostAuthValidate(mg_connection* conn)
+// {
+//     // 1. Проверка currentInstance
+//     if (!currentInstance) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Server instance not available";
+//         sendJsonResponse(conn, errorResp, 500);
+//         return;
+//     }
 
-    // 4. Парсинг JSON
-    Json::Value jsonRequest;
-    std::string parseError;
-    if (!parseJsonRequest(requestBody, jsonRequest, parseError)) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = parseError;
-        sendJsonResponse(conn, errorResp, 400);
-        return;
-    }
+//     // 2. Проверка подключения к БД
+//     if (!currentInstance->dbManager.isConnected()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Database not connected";
+//         sendJsonResponse(conn, errorResp, 500);
+//         return;
+//     }
 
-    // 5. Проверка поля token
-    if (!jsonRequest.isMember("token")) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = "Missing token field";
-        sendJsonResponse(conn, errorResp, 400);
-        return;
-    }
+//     // 3. Чтение тела запроса
+//     std::string requestBody = readRequestBody(conn);
+//     if (requestBody.empty()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Empty request body";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
 
-    std::string token = jsonRequest["token"].asString();
+//     // 4. Парсинг JSON
+//     Json::Value jsonRequest;
+//     std::string parseError;
+//     if (!parseJsonRequest(requestBody, jsonRequest, parseError)) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = parseError;
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
 
-    // 6. Валидация токена
-    TokenValidationResult validationResult = currentInstance->dbManager.validateToken(token);
+//     // 5. Проверка поля token
+//     if (!jsonRequest.isMember("token")) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Missing token field";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
 
-    // 7. Формирование ответа
-    if (!validationResult.valid) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = validationResult.error_msg;
-        sendJsonResponse(conn, errorResp, 401);
-        return;
-    }
+//     std::string token = jsonRequest["token"].asString();
 
-    // 8. Успешный ответ
-    Json::Value successResp;
-    successResp["status"] = "success";
-    successResp["message"] = "Token is valid";
 
-    Json::Value data;
-    data["user_id"] = validationResult.user_id;
-    data["login"] = validationResult.login;
-    data["name"] = validationResult.name;
-    data["role"] = validationResult.role;
+//     // 6. Валидация токена
+//     TokenValidationResult validationResult = currentInstance->dbManager.validateToken(token, "", "");
 
-    successResp["data"] = data;
-    sendJsonResponse(conn, successResp, 200);
-}
+//     // 7. Формирование ответа
+//     if (!validationResult.valid) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = validationResult.error_msg;
+//         sendJsonResponse(conn, errorResp, 401);
+//         return;
+//     }
+
+//     // 8. Успешный ответ
+//     Json::Value successResp;
+//     successResp["status"] = "success";
+//     successResp["message"] = "Token is valid";
+
+//     Json::Value data;
+//     data["user_id"] = validationResult.user_id;
+//     data["login"] = validationResult.login;
+//     data["name"] = escapeHtmlForJson(validationResult.name);
+//     data["role"] = validationResult.role;
+
+//     successResp["data"] = data;
+//     sendJsonResponse(conn, successResp, 200);
+// }
+
+
+
+
+
 
 void ServerCore::sendResponse(mg_connection *conn, const std::string &content, const std::string &contentType)
 {
-    mg_printf(conn, "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: %s\r\n"
-                    "Content-Length: %zu\r\n"
-                    "Connection: close\r\n\r\n",
-              contentType.c_str(), content.length());
+    // mg_printf(conn, "HTTP/1.1 200 OK\r\n"
+    //                 "Content-Type: %s\r\n"
+    //                 "Content-Length: %zu\r\n"
+    //                 "Connection: close\r\n\r\n",
+    //           contentType.c_str(), content.length());
+
+    // mg_write(conn, content.c_str(), content.length());
+
+    mg_printf(conn,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: %s\r\n"
+              "Content-Length: %zu\r\n"
+              "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n"
+              "X-Content-Type-Options: nosniff\r\n"
+              "X-Frame-Options: DENY\r\n"
+              "X-XSS-Protection: 1; mode=block\r\n"
+              "Connection: close\r\n\r\n",
+              contentType.c_str(),
+              content.length());
 
     mg_write(conn, content.c_str(), content.length());
 }
@@ -651,14 +805,73 @@ bool ServerCore::parseJsonRequest(const std::string& jsonStr, Json::Value& jsonV
 }
 
 
+// void ServerCore::sendJsonResponse(mg_connection* conn, const Json::Value& jsonData, int statusCode)
+// {
+//     // Преобразуем JSON в строку
+//     Json::StreamWriterBuilder writerBuilder;
+//     writerBuilder["indentation"] = ""; // Без форматирования для экономии трафика
+//     std::string jsonResponse = Json::writeString(writerBuilder, jsonData);
+
+//     // Формируем статусную строку HTTP
+//     const char* statusText = "OK";
+//     if (statusCode == 400) statusText = "Bad Request";
+//     else if (statusCode == 401) statusText = "Unauthorized";
+//     else if (statusCode == 403) statusText = "Forbidden";
+//     else if (statusCode == 404) statusText = "Not Found";
+//     else if (statusCode == 500) statusText = "Internal Server Error";
+
+//     // Отправляем HTTP заголовки
+//     mg_printf(conn,
+//               "HTTP/1.1 %d %s\r\n"
+//               "Content-Type: application/json\r\n"
+//               "Content-Length: %zu\r\n"
+//               "Connection: close\r\n"
+//               "\r\n",
+//               statusCode, statusText,
+//               jsonResponse.length());
+
+//     // Отправляем тело ответа
+//     mg_write(conn, jsonResponse.c_str(), jsonResponse.length());
+// }
+
+
+// void ServerCore::sendJsonResponse(mg_connection* conn, const Json::Value& jsonData, int statusCode)
+// {
+//     // Преобразуем JSON в строку
+//     Json::StreamWriterBuilder writerBuilder;
+//     writerBuilder["indentation"] = ""; // Без форматирования для экономии трафика
+//     std::string jsonResponse = Json::writeString(writerBuilder, jsonData);
+
+//     // Формируем статусную строку HTTP
+//     const char* statusText = "OK";
+//     if (statusCode == 400) statusText = "Bad Request";
+//     else if (statusCode == 401) statusText = "Unauthorized";
+//     else if (statusCode == 403) statusText = "Forbidden";
+//     else if (statusCode == 404) statusText = "Not Found";
+//     else if (statusCode == 500) statusText = "Internal Server Error";
+
+//     // Отправляем HTTP заголовки с HSTS
+//     mg_printf(conn,
+//               "HTTP/1.1 %d %s\r\n"
+//               "Content-Type: application/json\r\n"
+//               "Content-Length: %zu\r\n"
+//               "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n" // HSTS заголовок
+//               "Connection: close\r\n"
+//               "\r\n",
+//               statusCode, statusText,
+//               jsonResponse.length());
+
+//     // Отправляем тело ответа
+//     mg_write(conn, jsonResponse.c_str(), jsonResponse.length());
+// }
+
 void ServerCore::sendJsonResponse(mg_connection* conn, const Json::Value& jsonData, int statusCode)
 {
     // Преобразуем JSON в строку
     Json::StreamWriterBuilder writerBuilder;
-    writerBuilder["indentation"] = ""; // Без форматирования для экономии трафика
+    writerBuilder["indentation"] = "";
     std::string jsonResponse = Json::writeString(writerBuilder, jsonData);
 
-    // Формируем статусную строку HTTP
     const char* statusText = "OK";
     if (statusCode == 400) statusText = "Bad Request";
     else if (statusCode == 401) statusText = "Unauthorized";
@@ -666,17 +879,20 @@ void ServerCore::sendJsonResponse(mg_connection* conn, const Json::Value& jsonDa
     else if (statusCode == 404) statusText = "Not Found";
     else if (statusCode == 500) statusText = "Internal Server Error";
 
-    // Отправляем HTTP заголовки
+    // Отправляем HTTP заголовки с security-заголовками
     mg_printf(conn,
               "HTTP/1.1 %d %s\r\n"
               "Content-Type: application/json\r\n"
               "Content-Length: %zu\r\n"
+              "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n"
+              "X-Content-Type-Options: nosniff\r\n"
+              "X-Frame-Options: DENY\r\n"
+              "X-XSS-Protection: 1; mode=block\r\n"
               "Connection: close\r\n"
               "\r\n",
               statusCode, statusText,
               jsonResponse.length());
 
-    // Отправляем тело ответа
     mg_write(conn, jsonResponse.c_str(), jsonResponse.length());
 }
 
@@ -739,13 +955,37 @@ bool ServerCore::authenticateRequest(mg_connection* conn,
     // 5. Извлекаем токен (убираем "Bearer ")
     std::string token = authHeader.substr(7); // "Bearer ".length() = 7
 
-    // 6. Валидируем токен через DatabaseManager
-    tokenData = currentInstance->dbManager.validateToken(token);
+
+
+    // 6. Валидируем токен через DatabaseManager с текущим IP
+    // Получаем IP клиента из запроса
+    std::string client_ip = req_info->remote_addr ? req_info->remote_addr : "";
+    if (client_ip.empty()) {
+        client_ip = "unknown";
+    }
+
+    // Получаем User-Agent
+    std::string user_agent = "";
+    for (int i = 0; i < req_info->num_headers; i++) {
+        if (strcmp(req_info->http_headers[i].name, "User-Agent") == 0) {
+            user_agent = req_info->http_headers[i].value;
+            break;
+        }
+    }
+
+    tokenData = currentInstance->dbManager.validateToken(token, client_ip, user_agent);
 
     if (!tokenData.valid) {
         Json::Value errorResp;
         errorResp["status"] = "error";
         errorResp["message"] = tokenData.error_msg;
+
+        // Если это подозрительная активность, логируем детали
+        if (tokenData.is_suspicious || tokenData.ip_changed) {
+            logMessage("SUSPICIOUS ACTIVITY DETECTED: " + tokenData.error_msg +
+                       " User: " + tokenData.login + " IP: " + client_ip);
+        }
+
         sendJsonResponse(conn, errorResp, 401);
         return false;
     }
@@ -840,6 +1080,7 @@ void ServerCore::handlePostAuthLogout(mg_connection* conn)
     sendJsonResponse(conn, response, success ? 200 : 500);
 }
 
+
 void ServerCore::handlePostUsersList(mg_connection* conn)
 {
     // 1. Аутентификация и проверка прав (только admin)
@@ -861,10 +1102,10 @@ void ServerCore::handlePostUsersList(mg_connection* conn)
         Json::Value userJson;
         userJson["id"] = user.id;
         userJson["login"] = user.login;
-        userJson["name"] = user.name;
+        userJson["name"] = escapeHtmlForJson(user.name);      // <-- ЭКРАНИРОВАНО
         userJson["role"] = user.role;
-        userJson["phone"] = user.phone;
-        userJson["email"] = user.email;
+        userJson["phone"] = escapeHtmlForJson(user.phone);    // <-- ЭКРАНИРОВАНО
+        userJson["email"] = escapeHtmlForJson(user.email);    // <-- ЭКРАНИРОВАНО
         userJson["is_active"] = user.is_active;
         userJson["created_at"] = user.created_at;
 
@@ -877,6 +1118,9 @@ void ServerCore::handlePostUsersList(mg_connection* conn)
     sendJsonResponse(conn, response, 200);
     logMessage("Users list accessed by admin: " + userData.login);
 }
+
+
+
 
 void ServerCore::handlePostUsersCreate(mg_connection* conn)
 {
@@ -946,7 +1190,7 @@ void ServerCore::handlePostUsersCreate(mg_connection* conn)
     Json::Value data;
     data["user_id"] = createResult.user_id;
     data["login"] = login;
-    data["name"] = name;
+    data["name"] = escapeHtmlForJson(name);
     data["role"] = role;
 
     successResp["data"] = data;
@@ -954,6 +1198,7 @@ void ServerCore::handlePostUsersCreate(mg_connection* conn)
     sendJsonResponse(conn, successResp, 201); // 201 Created
     logMessage("User created by admin " + userData.login + ": " + login + " (" + role + ")");
 }
+
 
 
 void ServerCore::handlePostUsersUpdate(mg_connection* conn)
@@ -994,9 +1239,60 @@ void ServerCore::handlePostUsersUpdate(mg_connection* conn)
         return;
     }
 
-    int user_id = jsonRequest["user_id"].asInt();
+    // 5. БЕЗОПАСНОЕ извлечение user_id (защита от SQLi и неверных типов)
+    int user_id = 0;
+    std::string error_msg = "";
+    bool valid_user_id = false;
 
-    // 5. Извлечение опциональных полей
+    if (jsonRequest["user_id"].isInt()) {
+        // user_id как число
+        user_id = jsonRequest["user_id"].asInt();
+        valid_user_id = true;
+    }
+    else if (jsonRequest["user_id"].isString()) {
+        // user_id как строка - пытаемся преобразовать
+        std::string user_id_str = jsonRequest["user_id"].asString();
+        try {
+            size_t pos = 0;
+            user_id = std::stoi(user_id_str, &pos);
+
+            // Проверяем что вся строка была преобразована
+            if (pos != user_id_str.length()) {
+                error_msg = "user_id contains non-numeric characters";
+            } else {
+                valid_user_id = true;
+            }
+        }
+        catch (const std::invalid_argument& e) {
+            error_msg = "user_id must be a valid integer";
+        }
+        catch (const std::out_of_range& e) {
+            error_msg = "user_id value is out of range";
+        }
+    }
+    else {
+        // user_id не число и не строка
+        error_msg = "user_id must be an integer or numeric string";
+    }
+
+    if (!valid_user_id) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = error_msg;
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 6. Дополнительная валидация user_id
+    if (user_id <= 0) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Invalid user ID. Must be positive integer";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 7. Извлечение опциональных полей
     std::string name = jsonRequest.isMember("name") ? jsonRequest["name"].asString() : "";
     std::string role = jsonRequest.isMember("role") ? jsonRequest["role"].asString() : "";
     std::string phone = jsonRequest.isMember("phone") ? jsonRequest["phone"].asString() : "";
@@ -1004,17 +1300,31 @@ void ServerCore::handlePostUsersUpdate(mg_connection* conn)
 
     bool is_active = true;
     if (jsonRequest.isMember("is_active")) {
-        is_active = jsonRequest["is_active"].asBool();
+        if (jsonRequest["is_active"].isBool()) {
+            is_active = jsonRequest["is_active"].asBool();
+        } else {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = "is_active must be a boolean (true/false)";
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
     }
 
-    // 6. Проверка: нельзя менять самого себя на не-admin (если текущий admin)
-    // (опционально, для безопасности)
+    // 8. Валидация роли (если указана)
+    if (!role.empty() && role != "admin" && role != "operator" && role != "executor") {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Invalid role. Must be: admin, operator, executor";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
 
-    // 7. Обновление пользователя
+    // 9. Обновление пользователя
     DatabaseManager::UpdateUserResult updateResult =
         currentInstance->dbManager.updateUser(user_id, name, role, phone, email, is_active);
 
-    // 8. Формирование ответа
+    // 10. Формирование ответа
     if (!updateResult.success) {
         Json::Value errorResp;
         errorResp["status"] = "error";
@@ -1040,6 +1350,10 @@ void ServerCore::handlePostUsersUpdate(mg_connection* conn)
     sendJsonResponse(conn, successResp, 200);
     logMessage("User updated by admin " + userData.login + ": user_id=" + std::to_string(user_id));
 }
+
+
+
+
 
 
 void ServerCore::handlePostUsersDelete(mg_connection* conn)
@@ -1080,9 +1394,60 @@ void ServerCore::handlePostUsersDelete(mg_connection* conn)
         return;
     }
 
-    int user_id = jsonRequest["user_id"].asInt();
+    // 5. БЕЗОПАСНОЕ извлечение user_id (защита от SQLi и неверных типов)
+    int user_id = 0;
+    std::string error_msg = "";
+    bool valid_user_id = false;
 
-    // 5. Запрет на деактивацию самого себя (опционально)
+    if (jsonRequest["user_id"].isInt()) {
+        // user_id как число
+        user_id = jsonRequest["user_id"].asInt();
+        valid_user_id = true;
+    }
+    else if (jsonRequest["user_id"].isString()) {
+        // user_id как строка - пытаемся преобразовать
+        std::string user_id_str = jsonRequest["user_id"].asString();
+        try {
+            size_t pos = 0;
+            user_id = std::stoi(user_id_str, &pos);
+
+            // Проверяем что вся строка была преобразована
+            if (pos != user_id_str.length()) {
+                error_msg = "user_id contains non-numeric characters";
+            } else {
+                valid_user_id = true;
+            }
+        }
+        catch (const std::invalid_argument& e) {
+            error_msg = "user_id must be a valid integer";
+        }
+        catch (const std::out_of_range& e) {
+            error_msg = "user_id value is out of range";
+        }
+    }
+    else {
+        // user_id не число и не строка
+        error_msg = "user_id must be an integer or numeric string";
+    }
+
+    if (!valid_user_id) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = error_msg;
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 6. Дополнительная валидация
+    if (user_id <= 0) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Invalid user ID. Must be positive integer";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 7. Запрет на деактивацию самого себя (опционально)
     if (user_id == userData.user_id) {
         Json::Value errorResp;
         errorResp["status"] = "error";
@@ -1091,11 +1456,11 @@ void ServerCore::handlePostUsersDelete(mg_connection* conn)
         return;
     }
 
-    // 6. Деактивация пользователя
+    // 8. Деактивация пользователя
     DatabaseManager::DeleteUserResult deleteResult =
         currentInstance->dbManager.deleteUser(user_id);
 
-    // 7. Формирование ответа
+    // 9. Формирование ответа
     if (!deleteResult.success) {
         Json::Value errorResp;
         errorResp["status"] = "error";
@@ -1113,6 +1478,89 @@ void ServerCore::handlePostUsersDelete(mg_connection* conn)
     sendJsonResponse(conn, successResp, 200);
     logMessage("User deactivated by admin " + userData.login + ": user_id=" + std::to_string(user_id));
 }
+
+
+
+
+
+// void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
+// {
+//     // 1. Аутентификация (любая роль)
+//     TokenValidationResult userData;
+//     if (!authenticateRequest(conn, userData, "executor")) { // executor - минимальная роль
+//         return;
+//     }
+
+//     // 2. Чтение тела запроса
+//     std::string requestBody = readRequestBody(conn);
+//     if (requestBody.empty()) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Empty request body";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     // 3. Парсинг JSON
+//     Json::Value jsonRequest;
+//     std::string parseError;
+//     if (!parseJsonRequest(requestBody, jsonRequest, parseError)) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = parseError;
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     // 4. Проверка обязательных полей
+//     if (!jsonRequest.isMember("old_password") || !jsonRequest.isMember("new_password")) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = "Missing old_password or new_password field";
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     std::string old_password = jsonRequest["old_password"].asString();
+//     std::string new_password = jsonRequest["new_password"].asString();
+
+//     // 5. Определяем user_id для смены пароля
+//     int target_user_id = userData.user_id; // по умолчанию меняем свой пароль
+
+//     // Если admin хочет сменить пароль другому пользователю
+//     if (jsonRequest.isMember("user_id") && userData.role == "admin") {
+//         target_user_id = jsonRequest["user_id"].asInt();
+//     }
+
+//     // 6. Смена пароля
+//     DatabaseManager::ChangePasswordResult changeResult =
+//         currentInstance->dbManager.changePassword(target_user_id, old_password, new_password);
+
+//     // 7. Формирование ответа
+//     if (!changeResult.success) {
+//         Json::Value errorResp;
+//         errorResp["status"] = "error";
+//         errorResp["message"] = changeResult.error_msg;
+//         sendJsonResponse(conn, errorResp, 400);
+//         return;
+//     }
+
+//     Json::Value successResp;
+//     successResp["status"] = "success";
+//     successResp["message"] = "Password changed successfully";
+
+//     if (target_user_id != userData.user_id) {
+//         successResp["data"]["user_id"] = target_user_id;
+//         successResp["data"]["changed_by_admin"] = true;
+//         logMessage("Password changed by admin " + userData.login + " for user_id=" + std::to_string(target_user_id));
+//     } else {
+//         successResp["data"]["changed_by_admin"] = false;
+//         logMessage("Password changed by user: " + userData.login);
+//     }
+
+//     sendJsonResponse(conn, successResp, 200);
+// }
+
 
 void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
 {
@@ -1160,7 +1608,55 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
 
     // Если admin хочет сменить пароль другому пользователю
     if (jsonRequest.isMember("user_id") && userData.role == "admin") {
-        target_user_id = jsonRequest["user_id"].asInt();
+        // БЕЗОПАСНОЕ извлечение user_id
+        std::string error_msg = "";
+        bool valid_user_id = false;
+        int extracted_user_id = 0;
+
+        if (jsonRequest["user_id"].isInt()) {
+            extracted_user_id = jsonRequest["user_id"].asInt();
+            valid_user_id = true;
+        }
+        else if (jsonRequest["user_id"].isString()) {
+            std::string user_id_str = jsonRequest["user_id"].asString();
+            try {
+                size_t pos = 0;
+                extracted_user_id = std::stoi(user_id_str, &pos);
+
+                if (pos != user_id_str.length()) {
+                    error_msg = "user_id contains non-numeric characters";
+                } else {
+                    valid_user_id = true;
+                }
+            }
+            catch (const std::invalid_argument& e) {
+                error_msg = "user_id must be a valid integer";
+            }
+            catch (const std::out_of_range& e) {
+                error_msg = "user_id value is out of range";
+            }
+        }
+        else {
+            error_msg = "user_id must be an integer or numeric string";
+        }
+
+        if (!valid_user_id) {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = error_msg;
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
+
+        if (extracted_user_id <= 0) {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = "Invalid user ID. Must be positive integer";
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
+
+        target_user_id = extracted_user_id;
     }
 
     // 6. Смена пароля
@@ -1268,7 +1764,7 @@ void ServerCore::handlePostAuthRefresh(mg_connection* conn)
     data["token"] = refreshResult.new_token;
     data["user_id"] = refreshResult.user_id;
     data["login"] = refreshResult.login;
-    data["name"] = refreshResult.name;
+    data["name"] = escapeHtmlForJson(refreshResult.name);
     data["role"] = refreshResult.role;
 
     successResp["data"] = data;
@@ -1276,4 +1772,48 @@ void ServerCore::handlePostAuthRefresh(mg_connection* conn)
     sendJsonResponse(conn, successResp, 200);
     logMessage("Token refreshed for user: " + refreshResult.login +
                " (old_token: " + old_token.substr(0, 8) + "...)");
+}
+
+
+std::string ServerCore::escapeHtmlForJson(const std::string& input)
+{
+    if (input.empty()) {
+        return input;
+    }
+
+    std::string output;
+    output.reserve(input.length() * 2); // Меньше резерва, т.к. кириллицу не экранируем
+
+    for (size_t i = 0; i < input.length(); ++i) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+
+        // Экранируем только опасные для HTML/XML символы и управляющие символы
+        switch (c) {
+        case '<':  output += "\\u003c"; break;  // < - опасен для HTML
+        case '>':  output += "\\u003e"; break;  // > - опасен для HTML
+        case '&':  output += "\\u0026"; break;  // & - опасен для HTML
+        case '\"': output += "\\\""; break;     // " - опасен для JSON
+        case '\'': output += "\\'"; break;      // ' - опционально
+        case '\\': output += "\\\\"; break;     // \ - опасен для JSON
+        case '/':  output += "\\/"; break;      // / - опционально
+        case '\b': output += "\\b"; break;      // управляющие символы
+        case '\f': output += "\\f"; break;
+        case '\n': output += "\\n"; break;
+        case '\r': output += "\\r"; break;
+        case '\t': output += "\\t"; break;
+        default:
+            // Экранируем ТОЛЬКО управляющие символы (0x00-0x1F)
+            // Кириллицу и другие UTF-8 символы оставляем как есть
+            if (c < 0x20) {
+                char buf[7];
+                snprintf(buf, sizeof(buf), "\\u%04x", c);
+                output += buf;
+            } else {
+                output += c; // Все остальные символы (включая кириллицу) как есть
+            }
+            break;
+        }
+    }
+
+    return output;
 }

@@ -44,7 +44,7 @@ private:
     // Новые обработчики для аутентификации
     static void handlePostAuthLogin(mg_connection* conn);
 
-    static void handlePostAuthValidate(mg_connection* conn);
+    //static void handlePostAuthValidate(mg_connection* conn);
 
     static void sendResponse(struct mg_connection* conn, const std::string& content, const std::string& contentType = "text/plain");
 
@@ -81,6 +81,22 @@ private:
     static void handlePostAuthChangePassword(mg_connection* conn);
 
     static void handlePostAuthRefresh(mg_connection* conn);
+
+    /**
+     * @brief Экранирует HTML-символы для безопасной вставки в JSON
+     *
+     * Преобразует:
+     * < → \u003c
+     * > → \u003e
+     * & → \u0026
+     * " → \"
+     * ' → \'
+     * / → \/
+     *
+     * @param input Входная строка
+     * @return Экранированная строка
+     */
+    static std::string escapeHtmlForJson(const std::string& input);
 
 
     void* serverContext;  // Указатель на mg_context (void* для независимости от Qt)

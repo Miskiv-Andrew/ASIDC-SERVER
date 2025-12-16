@@ -38,6 +38,30 @@ struct AuthResult {
 
 
 // Структура для результата проверки токена
+// struct TokenValidationResult {
+//     int user_id;           // ID пользователя (0 при невалидном токене)
+//     std::string role;      // Роль пользователя
+//     std::string name;      // Имя пользователя
+//     std::string login;     // Логин (для удобства)
+//     bool valid;            // Флаг валидности токена
+//     std::string error_msg; // Сообщение об ошибке (если valid=false)
+
+//     // Конструктор по умолчанию
+//     TokenValidationResult() : user_id(0), valid(false) {}
+
+//     // Конструктор для валидного токена
+//     TokenValidationResult(int id, const std::string& user_role,
+//                           const std::string& user_name, const std::string& user_login)
+//         : user_id(id), role(user_role), name(user_name),
+//         login(user_login), valid(true) {}
+
+//     // Конструктор для ошибки
+//     TokenValidationResult(const std::string& error)
+//         : user_id(0), valid(false), error_msg(error) {}
+// };
+
+
+// Структура для результата проверки токена
 struct TokenValidationResult {
     int user_id;           // ID пользователя (0 при невалидном токене)
     std::string role;      // Роль пользователя
@@ -46,19 +70,44 @@ struct TokenValidationResult {
     bool valid;            // Флаг валидности токена
     std::string error_msg; // Сообщение об ошибке (если valid=false)
 
+    // НОВЫЕ ПОЛЯ для отслеживания безопасности:
+    std::string initial_ip; // IP при создании токена
+    std::string last_ip;    // Последний использованный IP
+    std::string user_agent; // User-Agent клиента
+    bool ip_changed;        // Флаг изменения IP
+    bool is_suspicious;     // Флаг подозрительности токена
+
     // Конструктор по умолчанию
-    TokenValidationResult() : user_id(0), valid(false) {}
+    TokenValidationResult()
+        : user_id(0),
+        valid(false),
+        ip_changed(false),
+        is_suspicious(false) {}
 
     // Конструктор для валидного токена
     TokenValidationResult(int id, const std::string& user_role,
                           const std::string& user_name, const std::string& user_login)
-        : user_id(id), role(user_role), name(user_name),
-        login(user_login), valid(true) {}
+        : user_id(id),
+        role(user_role),
+        name(user_name),
+        login(user_login),
+        valid(true),
+        ip_changed(false),
+        is_suspicious(false) {}
 
     // Конструктор для ошибки
     TokenValidationResult(const std::string& error)
-        : user_id(0), valid(false), error_msg(error) {}
+        : user_id(0),
+        valid(false),
+        error_msg(error),
+        ip_changed(false),
+        is_suspicious(false) {}
 };
+
+
+
+
+
 
 /**
  * @class DatabaseManager
@@ -184,7 +233,26 @@ public:
      * @note Метод обновляет поле last_activity при успешной проверке.
      * @note Для несуществующих или истекших токенов возвращает valid = false.
      */
-    TokenValidationResult validateToken(const std::string& token);
+
+
+    // TokenValidationResult validateToken(const std::string& token,
+    //                                     const std::string& current_ip = "");
+
+    TokenValidationResult validateToken(const std::string& token,
+                                        const std::string& current_ip = "",
+                                        const std::string& current_user_agent = "");
+
+
+    /**
+     * @brief Помечает токен как подозрительный.
+     *
+     * @param token Токен для пометки.
+     * @param reason Причина пометки (для логов).
+     *
+     * @return true если успешно, false при ошибке.
+     */
+    bool markTokenAsSuspicious(const std::string& token,
+                               const std::string& reason = "");
 
 
     /**
@@ -256,6 +324,12 @@ public:
         int user_id;
         bool success;
         std::string error_msg;
+
+        // Конструктор по умолчанию
+        CreateUserResult() : user_id(0), success(false) {}  // success = false!
+
+        // Конструктор для успеха
+        CreateUserResult(int id) : user_id(id), success(true) {}
     };
 
     struct UpdateUserResult {
@@ -274,7 +348,6 @@ public:
         std::string error_msg;
     };
 
-    // В начале файла, после других структур:
     struct RefreshTokenResult {
         std::string new_token;
         int user_id;
