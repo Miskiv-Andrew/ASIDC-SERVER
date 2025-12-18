@@ -3,10 +3,10 @@
 #include <QThread>
 
 
-#include "passwordhasher.h"
+#include "src/passwordhasher.h"
 #include <QMessageBox>
 
-#include "databasemanager.h"
+#include "src/databasemanager.h"
 
 const QString st_serv("server status ");
 const QString st_db("DB status ");

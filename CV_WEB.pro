@@ -19,15 +19,15 @@ SOURCES += \
     $$PWD/jsoncpp/src/lib_json/json_reader.cpp \
     $$PWD/jsoncpp/src/lib_json/json_value.cpp  \
     $$PWD/jsoncpp/src/lib_json/json_writer.cpp \
-    databasemanager.cpp \
+    src/databasemanager.cpp \
     nanodbc/nanodbc.cpp \
-    passwordhasher.cpp
+    src/passwordhasher.cpp
 
 
 SOURCES += \
     cv_web/civetweb.c \
     main.cpp \
-    mainwindow.cpp \
+    gui/mainwindow.cpp \
     src/servercore.cpp
 
 HEADERS += \
@@ -38,14 +38,14 @@ HEADERS += \
     cv_web/openssl_dl.inl \
     cv_web/response.inl \
     cv_web/sort.inl \
-    databasemanager.h \
-    mainwindow.h \
+    src/databasemanager.h \
+    gui/mainwindow.h \
     nanodbc/nanodbc.h \
-    passwordhasher.h \
+    src/passwordhasher.h \
     src/servercore.h
 
 FORMS += \
-    mainwindow.ui
+    gui/mainwindow.ui
 
 
 win32 {
