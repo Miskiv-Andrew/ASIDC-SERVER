@@ -33,29 +33,31 @@ public:
     ~MainWindow();
 
 private slots:
+
     void on_btnStartServer_clicked();
-
     void on_btnStopServer_clicked();
-
     void on_btnRestartServer_clicked();
 
-
-    void on_btnTestHTTP_clicked();
-
     void on_btnTestDbConnect_clicked();
+    void on_btnDBdisconnect_clicked();
 
     void on_btnClearLogs_clicked();
 
+    // void on_btnTestHTTP_clicked();
 
-    // void testPasswordHasher();
 
-    void on_pushButton_clicked();
+
+
+
+
 
     void on_pushButton_2_clicked();
 
-    void on_pushButton_13_clicked();
 
-    void on_btnTestAPI_clicked();
+
+
+
+
 
 private:
 

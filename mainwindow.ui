@@ -54,7 +54,14 @@
       <item>
        <widget class="QPushButton" name="btnTestDbConnect">
         <property name="text">
-         <string>Test DB connection</string>
+         <string>DB connection</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnDBdisconnect">
+        <property name="text">
+         <string>DB disconnect</string>
         </property>
        </widget>
       </item>
@@ -71,35 +78,35 @@
          </font>
         </property>
         <property name="text">
-         <string>Testing connections:</string>
+         <string>Reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnTestHTTP">
         <property name="text">
-         <string>check HTTP(port  8080)</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnTestHTTPS">
         <property name="text">
-         <string>check HTTPS(порт 8443)</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnOpenBrowserHTTP">
         <property name="text">
-         <string>Open in HTTP browser</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnOpenBrowserHTTPS">
         <property name="text">
-         <string>Open in HTTPS browser</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
@@ -116,28 +123,28 @@
          </font>
         </property>
         <property name="text">
-         <string>SSL settings:</string>
+         <string>Reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnLoadSSLCert">
         <property name="text">
-         <string>Download SSL certificate</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnGenerateTestCert">
         <property name="text">
-         <string>Generate a test certificate</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnSSLStatus">
         <property name="text">
-         <string>Show SSL status</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
@@ -166,6 +173,9 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="text">
+         <string>HTTP not  used</string>
+        </property>
        </widget>
       </item>
       <item>
@@ -175,6 +185,9 @@
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
+        </property>
+        <property name="text">
+         <string>8443</string>
         </property>
        </widget>
       </item>
@@ -196,37 +209,37 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="pushButton_2">
+        <property name="text">
+         <string>Get Hash from Pass</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QPushButton" name="btnTestFileServe">
         <property name="text">
-         <string>HTTPS file distribution test</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="btnTestAPI">
         <property name="text">
-         <string>Validate token</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="pushButton_13">
         <property name="text">
-         <string>Token test</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="pushButton">
         <property name="text">
-         <string>Log Test</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="pushButton_2">
-        <property name="text">
-         <string>Test Hash</string>
+         <string>reserve</string>
         </property>
        </widget>
       </item>
@@ -248,26 +261,16 @@
        </widget>
       </item>
       <item>
-       <widget class="QLabel" name="lblStatus">
+       <widget class="QLabel" name="lblServerStatus">
         <property name="text">
          <string>server status</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QLabel" name="lblSSLStatus">
+       <widget class="QLabel" name="labelDBstatus">
         <property name="text">
-         <string>SSL status label</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLineEdit" name="txtToken"/>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnShowLogs">
-        <property name="text">
-         <string>Show logs</string>
+         <string>DB status</string>
         </property>
        </widget>
       </item>

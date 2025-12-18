@@ -1,11 +1,25 @@
 #include "servercore.h"
 #include "../cv_web/civetweb.h"
-#include <iostream>
 #include <chrono>
 #include <ctime>
 #include <unordered_map>
 #include <mutex>
-#include <fstream>
+
+// В начале servercore.cpp
+#include <fstream>      // для std::ifstream
+#include <string>       // для std::string
+#include <chrono>       // для std::chrono
+#include <ctime>        // для std::time_t, std::tm
+// #include <sstream>      // для std::stringstream
+// #include <iomanip>      // для std::setw, std::setfill
+
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <unistd.h>
+    #include <linux/limits.h>
+#endif
 
 
 
@@ -144,14 +158,120 @@ ServerCore::~ServerCore()
 }
 
 
-bool ServerCore::startServer(int port)
+// bool ServerCore::startServer(int https_port)
+// {
+//     if (serverRunning) {
+//         stopServer();
+//     }
+
+//     // Валидация порта
+//     if (https_port <= 0 || https_port > 65535) {
+//         lastError = "Invalid HTTPS port number: " + std::to_string(https_port);
+//         return false;
+//     }
+
+//     std::string pem_path = "D:\\SERVERS\\Qt projects\\stage_1\\CV_WEB\\src\\ssl_certs\\server.pem";
+
+//     // std::string pem_path = "ssl_certs/server.pem";
+
+//     // Формируем строку порта с 's' для HTTPS (например "8443s")
+//     std::string ports_str = std::to_string(https_port) + "s";
+
+//     const char *options[] = {
+//         "listening_ports", ports_str.c_str(),
+//         "ssl_certificate", pem_path.c_str(),
+//         "num_threads", "5",
+//         NULL
+//     };
+
+//     // Создаем структуру callback-функций
+//     struct mg_callbacks callbacks;
+//     memset(&callbacks, 0, sizeof(callbacks));
+//     callbacks.begin_request = handleRequest;
+
+//     serverContext = mg_start(&callbacks, NULL, options);
+
+//     if (!serverContext) {
+//         lastError = "mg_start returned NULL";
+//         serverRunning = false;
+//         return false;
+//     }
+
+//     serverRunning = true;
+//     currentPort = https_port;  // Сохраняем реальный порт
+//     lastError.clear();
+
+//     // logMessage("HTTPS server started on port " + std::to_string(https_port) + " (HTTPS only)");
+//     return true;
+// }
+
+
+
+
+bool ServerCore::startServer(int https_port)
 {
     if (serverRunning) {
         stopServer();
     }
 
-    std::string pem_path = "D:\\SERVERS\\Qt projects\\stage_1\\CV_WEB\\src\\ssl_certs\\server.pem";
-    std::string ports_str = "8443s";  // ТОЛЬКО HTTPS порт, HTTP отключен
+    // Валидация порта
+    if (https_port <= 0 || https_port > 65535) {
+        lastError = "Invalid HTTPS port number: " + std::to_string(https_port);
+        return false;
+    }
+
+    // Путь к SSL сертификату - рядом с исполняемым файлом
+    std::string pem_path;
+
+    // 1. Получаем путь к исполняемому файлу
+#ifdef _WIN32
+
+    char exe_path[MAX_PATH];
+    GetModuleFileNameA(NULL, exe_path, MAX_PATH);
+    std::string exe_dir = exe_path;
+    size_t last_slash = exe_dir.find_last_of("\\/");
+    if (last_slash != std::string::npos) {
+        exe_dir = exe_dir.substr(0, last_slash + 1);
+    }
+    pem_path = exe_dir + "ssl_certs\\server.pem";
+
+#else
+
+    // Linux/Unix
+    char exe_path[PATH_MAX];
+    ssize_t count = readlink("/proc/self/exe", exe_path, PATH_MAX);
+    if (count != -1) {
+        std::string exe_dir = exe_path;
+        size_t last_slash = exe_dir.find_last_of('/');
+        if (last_slash != std::string::npos) {
+            exe_dir = exe_dir.substr(0, last_slash + 1);
+        }
+        pem_path = exe_dir + "ssl_certs/server.pem";
+    } else {
+        // fallback - текущая директория
+        pem_path = "ssl_certs/server.pem";
+
+    }
+#endif
+
+    // 2. Проверка существования файла сертификата
+    std::ifstream cert_file(pem_path);
+    if (!cert_file.good()) {
+        // Попробовать альтернативный путь (просто в текущей директории)
+        pem_path = "server.pem";
+        std::ifstream alt_cert_file(pem_path);
+        if (!alt_cert_file.good()) {
+            lastError = "SSL certificate file not found. Expected at: " + pem_path +
+                        " or in executable directory/ssl_certs/";
+            return false;
+        }
+        alt_cert_file.close();
+    } else {
+        cert_file.close();
+    }
+
+    // Формируем строку порта с 's' для HTTPS
+    std::string ports_str = std::to_string(https_port) + "s";
 
     const char *options[] = {
         "listening_ports", ports_str.c_str(),
@@ -168,16 +288,15 @@ bool ServerCore::startServer(int port)
     serverContext = mg_start(&callbacks, NULL, options);
 
     if (!serverContext) {
-        lastError = "mg_start returned NULL";
+        lastError = "mg_start failed. SSL certificate: " + pem_path;
         serverRunning = false;
         return false;
     }
 
     serverRunning = true;
-    currentPort = 8443;  // Устанавливаем порт HTTPS
+    currentPort = https_port;
     lastError.clear();
 
-    logMessage("HTTPS server started on ports " + ports_str);
     return true;
 }
 
@@ -187,8 +306,7 @@ void ServerCore::stopServer()
         mg_stop((mg_context*)serverContext);
         serverContext = nullptr;
     }
-    serverRunning = false;
-    std::cout << "HTTP server stopped" << std::endl;
+    serverRunning = false;    
 }
 
 bool ServerCore::isRunning() const
@@ -1040,6 +1158,48 @@ bool ServerCore::checkPermissions(const TokenValidationResult& tokenData,
 
 
 
+// void ServerCore::handlePostAuthLogout(mg_connection* conn)
+// {
+//     // 1. Аутентификация через middleware
+//     TokenValidationResult userData;
+//     if (!authenticateRequest(conn, userData)) {
+//         return; // Ошибка уже отправлена
+//     }
+
+//     // 2. Получить токен из заголовка Authorization
+//     const struct mg_request_info* req_info = mg_get_request_info(conn);
+//     std::string token = "";
+
+//     for (int i = 0; i < req_info->num_headers; i++) {
+//         if (strcmp(req_info->http_headers[i].name, "Authorization") == 0) {
+//             std::string authHeader = req_info->http_headers[i].value;
+//             if (authHeader.find("Bearer ") == 0) {
+//                 token = authHeader.substr(7);
+//             }
+//             break;
+//         }
+//     }
+
+//     // 3. Инвалидировать токен
+//     bool success = currentInstance->dbManager.invalidateToken(token);
+
+//     // 4. Формирование ответа
+//     Json::Value response;
+
+//     if (success) {
+//         response["status"] = "success";
+//         response["message"] = "Successfully logged out";
+//         logMessage("User logged out: " + userData.login);
+//     } else {
+//         response["status"] = "error";
+//         response["message"] = "Failed to invalidate token";
+//     }
+
+//     sendJsonResponse(conn, response, success ? 200 : 500);
+// }
+
+
+
 void ServerCore::handlePostAuthLogout(mg_connection* conn)
 {
     // 1. Аутентификация через middleware
@@ -1048,7 +1208,7 @@ void ServerCore::handlePostAuthLogout(mg_connection* conn)
         return; // Ошибка уже отправлена
     }
 
-    // 2. Получить токен из заголовка Authorization
+    // 2. Получить токен из заголовка Authorization (тело запроса не читаем)
     const struct mg_request_info* req_info = mg_get_request_info(conn);
     std::string token = "";
 
@@ -1081,6 +1241,48 @@ void ServerCore::handlePostAuthLogout(mg_connection* conn)
 }
 
 
+
+
+
+// void ServerCore::handlePostUsersList(mg_connection* conn)
+// {
+//     // 1. Аутентификация и проверка прав (только admin)
+//     TokenValidationResult userData;
+//     if (!authenticateRequest(conn, userData, "admin")) {
+//         return; // Ошибка уже отправлена
+//     }
+
+//     // 2. Получение списка пользователей
+//     std::vector<DatabaseManager::UserInfo> users = currentInstance->dbManager.getUsersList();
+
+//     // 3. Формирование JSON ответа
+//     Json::Value response;
+//     response["status"] = "success";
+//     response["message"] = "Users list retrieved successfully";
+
+//     Json::Value usersArray(Json::arrayValue);
+//     for (const auto& user : users) {
+//         Json::Value userJson;
+//         userJson["id"] = user.id;
+//         userJson["login"] = user.login;
+//         userJson["name"] = escapeHtmlForJson(user.name);      // <-- ЭКРАНИРОВАНО
+//         userJson["role"] = user.role;
+//         userJson["phone"] = escapeHtmlForJson(user.phone);    // <-- ЭКРАНИРОВАНО
+//         userJson["email"] = escapeHtmlForJson(user.email);    // <-- ЭКРАНИРОВАНО
+//         userJson["is_active"] = user.is_active;
+//         userJson["created_at"] = user.created_at;
+
+//         usersArray.append(userJson);
+//     }
+
+//     response["data"]["users"] = usersArray;
+//     response["data"]["count"] = static_cast<int>(users.size());
+
+//     sendJsonResponse(conn, response, 200);
+//     logMessage("Users list accessed by admin: " + userData.login);
+// }
+
+
 void ServerCore::handlePostUsersList(mg_connection* conn)
 {
     // 1. Аутентификация и проверка прав (только admin)
@@ -1089,7 +1291,7 @@ void ServerCore::handlePostUsersList(mg_connection* conn)
         return; // Ошибка уже отправлена
     }
 
-    // 2. Получение списка пользователей
+    // 2. Получение списка пользователей (тело запроса не читаем)
     std::vector<DatabaseManager::UserInfo> users = currentInstance->dbManager.getUsersList();
 
     // 3. Формирование JSON ответа
@@ -1100,12 +1302,12 @@ void ServerCore::handlePostUsersList(mg_connection* conn)
     Json::Value usersArray(Json::arrayValue);
     for (const auto& user : users) {
         Json::Value userJson;
-        userJson["id"] = user.id;
+        userJson["id"] = user.id;                    // ID только для админа
         userJson["login"] = user.login;
-        userJson["name"] = escapeHtmlForJson(user.name);      // <-- ЭКРАНИРОВАНО
+        userJson["name"] = escapeHtmlForJson(user.name);
         userJson["role"] = user.role;
-        userJson["phone"] = escapeHtmlForJson(user.phone);    // <-- ЭКРАНИРОВАНО
-        userJson["email"] = escapeHtmlForJson(user.email);    // <-- ЭКРАНИРОВАНО
+        userJson["phone"] = escapeHtmlForJson(user.phone);
+        userJson["email"] = escapeHtmlForJson(user.email);
         userJson["is_active"] = user.is_active;
         userJson["created_at"] = user.created_at;
 
@@ -1113,12 +1315,11 @@ void ServerCore::handlePostUsersList(mg_connection* conn)
     }
 
     response["data"]["users"] = usersArray;
-    response["data"]["count"] = static_cast<int>(users.size());
+    // Поле "count" убрано - клиент может использовать users.length
 
     sendJsonResponse(conn, response, 200);
     logMessage("Users list accessed by admin: " + userData.login);
 }
-
 
 
 
@@ -1483,6 +1684,7 @@ void ServerCore::handlePostUsersDelete(mg_connection* conn)
 
 
 
+
 // void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
 // {
 //     // 1. Аутентификация (любая роль)
@@ -1529,7 +1731,55 @@ void ServerCore::handlePostUsersDelete(mg_connection* conn)
 
 //     // Если admin хочет сменить пароль другому пользователю
 //     if (jsonRequest.isMember("user_id") && userData.role == "admin") {
-//         target_user_id = jsonRequest["user_id"].asInt();
+//         // БЕЗОПАСНОЕ извлечение user_id
+//         std::string error_msg = "";
+//         bool valid_user_id = false;
+//         int extracted_user_id = 0;
+
+//         if (jsonRequest["user_id"].isInt()) {
+//             extracted_user_id = jsonRequest["user_id"].asInt();
+//             valid_user_id = true;
+//         }
+//         else if (jsonRequest["user_id"].isString()) {
+//             std::string user_id_str = jsonRequest["user_id"].asString();
+//             try {
+//                 size_t pos = 0;
+//                 extracted_user_id = std::stoi(user_id_str, &pos);
+
+//                 if (pos != user_id_str.length()) {
+//                     error_msg = "user_id contains non-numeric characters";
+//                 } else {
+//                     valid_user_id = true;
+//                 }
+//             }
+//             catch (const std::invalid_argument& e) {
+//                 error_msg = "user_id must be a valid integer";
+//             }
+//             catch (const std::out_of_range& e) {
+//                 error_msg = "user_id value is out of range";
+//             }
+//         }
+//         else {
+//             error_msg = "user_id must be an integer or numeric string";
+//         }
+
+//         if (!valid_user_id) {
+//             Json::Value errorResp;
+//             errorResp["status"] = "error";
+//             errorResp["message"] = error_msg;
+//             sendJsonResponse(conn, errorResp, 400);
+//             return;
+//         }
+
+//         if (extracted_user_id <= 0) {
+//             Json::Value errorResp;
+//             errorResp["status"] = "error";
+//             errorResp["message"] = "Invalid user ID. Must be positive integer";
+//             sendJsonResponse(conn, errorResp, 400);
+//             return;
+//         }
+
+//         target_user_id = extracted_user_id;
 //     }
 
 //     // 6. Смена пароля
@@ -1591,24 +1841,15 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
         return;
     }
 
-    // 4. Проверка обязательных полей
-    if (!jsonRequest.isMember("old_password") || !jsonRequest.isMember("new_password")) {
-        Json::Value errorResp;
-        errorResp["status"] = "error";
-        errorResp["message"] = "Missing old_password or new_password field";
-        sendJsonResponse(conn, errorResp, 400);
-        return;
-    }
-
-    std::string old_password = jsonRequest["old_password"].asString();
-    std::string new_password = jsonRequest["new_password"].asString();
-
-    // 5. Определяем user_id для смены пароля
+    // 4. Определение сценария
+    bool isAdminChangingForOther = false;
     int target_user_id = userData.user_id; // по умолчанию меняем свой пароль
+    std::string old_password = "";
+    std::string new_password = "";
 
-    // Если admin хочет сменить пароль другому пользователю
+    // Сценарий 1: Админ меняет пароль другому пользователю
     if (jsonRequest.isMember("user_id") && userData.role == "admin") {
-        // БЕЗОПАСНОЕ извлечение user_id
+        // Безопасное извлечение user_id
         std::string error_msg = "";
         bool valid_user_id = false;
         int extracted_user_id = 0;
@@ -1656,14 +1897,90 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
             return;
         }
 
-        target_user_id = extracted_user_id;
+        // Проверяем, что админ не меняет пароль самому себе (опционально)
+        if (extracted_user_id == userData.user_id) {
+            // Админ меняет свой пароль - переходим в сценарий 2
+            // Требуем old_password
+            isAdminChangingForOther = false;
+            target_user_id = userData.user_id;
+        } else {
+            // Админ меняет пароль другому пользователю
+            isAdminChangingForOther = true;
+            target_user_id = extracted_user_id;
+        }
     }
 
-    // 6. Смена пароля
-    DatabaseManager::ChangePasswordResult changeResult =
-        currentInstance->dbManager.changePassword(target_user_id, old_password, new_password);
+    // 5. Проверка наличия new_password
+    if (!jsonRequest.isMember("new_password")) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Missing new_password field";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
 
-    // 7. Формирование ответа
+    new_password = jsonRequest["new_password"].asString();
+
+    // 6. Проверка сложности нового пароля
+    std::string complexity_error;
+    if (!PasswordHasher::validatePasswordComplexity(new_password, complexity_error)) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = complexity_error;
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 7. Обработка в зависимости от сценария
+    DatabaseManager::ChangePasswordResult changeResult;
+
+    if (isAdminChangingForOther) {
+        // Сценарий 1: Админ меняет пароль другому пользователю
+        // Используем новый метод resetUserPassword
+        changeResult = currentInstance->dbManager.resetUserPassword(target_user_id, new_password);
+    }
+    else {
+        // Сценарий 2: Пользователь меняет свой пароль (или админ свой)
+        if (!jsonRequest.isMember("old_password")) {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = "Missing old_password field";
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
+
+        old_password = jsonRequest["old_password"].asString();
+
+        // Старый и новый пароль не должны совпадать
+        if (old_password == new_password) {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = "New password must be different from current password";
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
+
+        // Проверка что пароль не содержит логин
+        std::string user_login = userData.login;
+        std::string lower_password = new_password;
+        std::string lower_login = user_login;
+
+        for (char& c : lower_password) c = std::tolower(c);
+        for (char& c : lower_login) c = std::tolower(c);
+
+        if (lower_password.find(lower_login) != std::string::npos) {
+            Json::Value errorResp;
+            errorResp["status"] = "error";
+            errorResp["message"] = "Password should not contain your login";
+            sendJsonResponse(conn, errorResp, 400);
+            return;
+        }
+
+        changeResult = currentInstance->dbManager.changePassword(
+            target_user_id, old_password, new_password);
+    }
+
+    // 8. Формирование ответа
     if (!changeResult.success) {
         Json::Value errorResp;
         errorResp["status"] = "error";
@@ -1676,7 +1993,7 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
     successResp["status"] = "success";
     successResp["message"] = "Password changed successfully";
 
-    if (target_user_id != userData.user_id) {
+    if (isAdminChangingForOther) {
         successResp["data"]["user_id"] = target_user_id;
         successResp["data"]["changed_by_admin"] = true;
         logMessage("Password changed by admin " + userData.login + " for user_id=" + std::to_string(target_user_id));
@@ -1687,6 +2004,10 @@ void ServerCore::handlePostAuthChangePassword(mg_connection* conn)
 
     sendJsonResponse(conn, successResp, 200);
 }
+
+
+
+
 
 
 
