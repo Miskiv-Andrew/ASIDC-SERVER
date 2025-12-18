@@ -49,16 +49,9 @@ FORMS += \
 
 
 win32 {
-    # Путь к установленному OpenSSL (полная версия)
-    OPENSSL_PATH = "C:/Program Files/OpenSSL-Win64"
-
-    # Добавляем путь к заголовочным файлам
+    OPENSSL_PATH = $$(OPENSSL_PATH)
     INCLUDEPATH += "$$OPENSSL_PATH/include"
-
-    # Добавляем путь к библиотекам (специфичная для MSVC папка)
     LIBS += -L"$$OPENSSL_PATH/lib/VC/x64/MD"
-
-    # Подключаем библиотеки OpenSSL
     LIBS += -llibssl -llibcrypto
 }
 
