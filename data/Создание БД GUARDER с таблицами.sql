@@ -133,8 +133,8 @@ VALUES (
     'admin',                            -- role
     '+79990000000',                     -- phone
     'admin@guarder.local',              -- email
-    'pbkdf2_sha256:10000:13UUxX5VZKL2/Due4lO0Xg==:b26jVfsubAf1aYlgKY2b2fgC13gjkSs1lPYYeqasmig=',
-    '13UUxX5VZKL2/Due4lO0Xg==',
+    'pbkdf2_sha256:10000:dxhzP9AhBbFmZMknlT6zIg==:taV4HAvvqsD99xY4e9AZCHDEtF2dDJML4OPgwkbUZ38=',
+    'dxhzP9AhBbFmZMknlT6zIg==',
     1                                   -- is_active
 );
 

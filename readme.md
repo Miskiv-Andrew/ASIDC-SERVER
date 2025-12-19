@@ -140,6 +140,33 @@ project/
 
 ---
 
+## Установка и настройка базы данных (MySQL + ODBC)
+
+Для работы модуля **DatabaseManager** требуется настроенная база данных и ODBC-драйвер.
+
+### 1. Создание базы данных
+- SQL-скрипт для создания структуры БД находится по пути:  
+  ```
+  data/Создание БД GUARDER с таблицами.sql
+  ```
+- Выполните скрипт в MySQL, чтобы создать базу данных `guarder_base` и необходимые таблицы.
+
+### 2. Установка ODBC драйвера
+- Скачайте и установите **MySQL Connector/ODBC 9.5.0 ** с официального сайта MySQL.  
+- После установки откройте утилиту **ODBC Data Sources**.
+
+### 3. Настройка System DSN
+В разделе **System DSN** добавьте новый источник данных:
+
+- **Driver:** MySQL ODBC 9.5 Unicode Driver  
+- **Data Source Name:** `GuarderDB`  
+- **TCP/IP Server:** `localhost:3306`  
+- **User:** `root`  
+- **Password:** пароль, заданный при установке MySQL  
+- **Database:** `guarder_base`
+
+После сохранения DSN сервер будет использовать подключение `GuarderDB` для работы с базой данных.
+
 ## Установка и настройка OpenSSL (зависимости)
 
 Для работы модуля **PasswordHasher** требуется установленный OpenSSL.
@@ -153,7 +180,6 @@ project/
 
 ### 2. Настройка переменной окружения
 Создать переменную окружения `OPENSSL_PATH`:
-
 ```powershell
 setx OPENSSL_PATH "C:\Program Files\OpenSSL-Win64"
 ```
@@ -172,10 +198,3 @@ win32 {
     LIBS += -llibssl -llibcrypto
 }
 ```
-
-### 4. Проверка
-Добавьте в `.pro`:
-```qmake
-message("OPENSSL_PATH = $$OPENSSL_PATH")
-```
-При запуске `qmake` должно вывести путь к установленному OpenSSL.
