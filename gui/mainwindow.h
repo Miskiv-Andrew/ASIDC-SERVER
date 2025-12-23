@@ -6,8 +6,8 @@
 #include <QNetworkReply>
 #include <QTimer>
 #include <QDebug>
-#include "cv_web/civetweb.h"
-#include "src/servercore.h"
+#include "civetweb.h"
+#include "servercore.h"
 
 #include <json/json.h>
 

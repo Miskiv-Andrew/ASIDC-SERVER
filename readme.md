@@ -1,5 +1,13 @@
 # Guarder Server
 
+## Сборка CLI сервера через Cmake
+```
+mdir build
+cd build
+cmake ..
+cmake --build . --config Release
+```
+
 ## 📌 Общая архитектура системы
 
 ### 1.1. Компоненты системы
@@ -182,6 +190,7 @@ project/
 Создать переменную окружения `OPENSSL_PATH`:
 ```powershell
 setx OPENSSL_PATH "C:\Program Files\OpenSSL-Win64"
+[System.Environment]::SetEnvironmentVariable( "OPENSSL_PATH", "C:\Program Files\OpenSSL-Win64", [System.EnvironmentVariableTarget]::Machine )
 ```
 
 После этого **перезапустить Qt Creator** или консоль.

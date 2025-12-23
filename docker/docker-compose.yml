@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: asidc_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: guarder_base
+      MYSQL_USER: cvituser
+      MYSQL_PASSWORD: cvitpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - asidc_network
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: asidc_server
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: guarder_base
+      DB_USER: cvituser
+      DB_PASSWORD: cvitpass
+      HTTPS_PORT: 8443
+    volumes:
+      # В PROD лучше монтировать, а не копировать
+      - ./config/ssl:/app/config/ssl:ro
+    networks:
+      - asidc_network
+
+volumes:
+  mysql_data:
+
+networks:
+  asidc_network:
+    driver: bridge

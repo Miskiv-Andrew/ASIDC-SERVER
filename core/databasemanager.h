@@ -3,15 +3,13 @@
 
 #include <string>
 #include <memory>
-#include <nanodbc/nanodbc.h>
+#include "nanodbc.h"
 #include <mutex>
 #include <random>
 #include <sstream>
 #include <iomanip>
 #include <chrono>
 #include <ctime>
-
-#include <QDebug>
 
 #include "passwordhasher.h"
 

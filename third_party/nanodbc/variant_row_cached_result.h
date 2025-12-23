@@ -6,7 +6,7 @@
 #endif
 
 #include <comutil.h> // _variant_t
-#include <nanodbc/nanodbc.h>
+#include "nanodbc.h"
 
 namespace nanodbc
 {

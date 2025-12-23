@@ -4,7 +4,7 @@
 #include <string>
 #include <functional>
 
-#include ".//databasemanager.h"
+#include "databasemanager.h"
 
 #include <json/json.h>
 

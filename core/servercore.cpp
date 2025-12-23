@@ -1,5 +1,5 @@
 #include "servercore.h"
-#include "../cv_web/civetweb.h"
+#include "civetweb.h"
 #include <chrono>
 #include <ctime>
 #include <unordered_map>

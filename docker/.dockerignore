@@ -1,0 +1,6 @@
+.git
+build
+*.user
+*.log
+old_gui
+scripts
