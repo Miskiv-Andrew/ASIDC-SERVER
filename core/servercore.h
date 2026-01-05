@@ -260,6 +260,13 @@ private:
     static void handlePostAuthRefresh(mg_connection* conn);
 
     /**
+     * @brief Обрабатывает POST запрос к /api/dev/write.
+     *
+     * @param conn Соединение civetweb.
+     */
+    static void handleDeviceDataWrite(mg_connection* conn);
+
+    /**
      * @brief Экранирует HTML-символы для безопасной вставки в JSON.
      *
      * Преобразует:

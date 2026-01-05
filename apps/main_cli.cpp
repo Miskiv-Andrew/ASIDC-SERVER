@@ -3,6 +3,8 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <fstream>
+#include <sstream>
 
 #include "servercore.h"
 
@@ -17,6 +19,84 @@ void signalHandler(int signal)
     if (g_server) {
         g_server->stopServer();
     }
+}
+
+// Простое чтение SQL файла
+std::string readSQLFile(const std::string& filepath)
+{
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        return "";
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+// Упрощенное выполнение SQL скрипта
+bool executeSQLScript(ServerCore& server, const std::string& sqlScript)
+{
+    if (sqlScript.empty()) {
+        return false;
+    }
+
+    // Разбиваем по точке с запятой и выполняем команды
+    std::istringstream stream(sqlScript);
+    std::string line, command;
+
+    while (std::getline(stream, line)) {
+        // Пропускаем комментарии
+        if (line.empty() || line.substr(0, 2) == "--" || line.substr(0, 2) == "/*") {
+            continue;
+        }
+
+        command += line + "\n";
+
+        // Если команда завершена, выполняем
+        if (line.find(';') != std::string::npos) {
+            if (!server.dbManager.executeQuery(command)) {
+                // Игнорируем ошибки типа "already exists"
+                std::string error = server.dbManager.getLastError();
+                if (error.find("already exists") == std::string::npos) {
+                    std::cerr << "[WARNING] SQL error: " << error << std::endl;
+                }
+            }
+            command.clear();
+        }
+    }
+
+    return true;
+}
+
+// Инициализация БД
+bool initializeDatabase(ServerCore& server)
+{
+    std::cout << "[INFO] Initializing database...\n";
+
+    // Подключаемся к БД
+    if (!server.dbManager.initialize("DSN=GuarderDB")) {
+        std::cerr << "[ERROR] Database connection failed: "
+                  << server.dbManager.getLastError() << std::endl;
+        return false;
+    }
+
+    std::cout << "[OK] Database connected\n";
+
+    // CMake скопировал SQL файл в db/init/ - используем этот путь
+    std::string sqlScript = readSQLFile("db/init/001_init.sql");
+
+    if (sqlScript.empty()) {
+        std::cerr << "[WARNING] SQL script not found or empty\n";
+        std::cout << "[INFO] Database might already be initialized\n";
+        return true; // Не критично, БД может быть уже создана
+    }
+
+    std::cout << "[INFO] Executing SQL initialization script...\n";
+    executeSQLScript(server, sqlScript);
+
+    std::cout << "[OK] Database initialization completed\n";
+    return true;
 }
 
 int main(int argc, char** argv)
@@ -45,6 +125,12 @@ int main(int argc, char** argv)
     server.setLogCallback([](const std::string& msg) {
         std::cout << "[LOG] " << msg << std::endl;
     });
+
+    // Инициализация БД
+    if (!initializeDatabase(server)) {
+        std::cerr << "[ERROR] Database initialization failed!\n";
+        std::cerr << "[WARNING] Server will start but database operations may fail\n";
+    }
 
     std::cout << "[INFO] Starting server...\n";
     if (!server.startServer(httpsPort)) {

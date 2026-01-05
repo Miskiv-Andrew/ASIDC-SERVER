@@ -61,6 +61,16 @@ bool DatabaseManager::initialize(const std::string& connectionString)
         isConnected_ = true;
         lastError_.clear();  // Очищаем предыдущие ошибки
 
+        // ===================================================
+        // Автоматически создаем stored procedures
+        // ===================================================
+        if (!initializeStoredProcedures()) {
+            std::cerr << "[DatabaseManager] WARNING: Failed to initialize stored procedures" << std::endl;
+            std::cerr << "[DatabaseManager] Error: " << getLastError() << std::endl;
+            // Не возвращаем false, т.к. основное соединение работает
+            // Процедуры могут быть созданы вручную позже
+        }
+
         return true;
     }
     catch (const nanodbc::database_error& e) {
@@ -125,6 +135,208 @@ void DatabaseManager::disconnect()
 std::string DatabaseManager::getLastError() const
 {
     return lastError_;
+}
+
+bool DatabaseManager::executeQuery(const std::string &query)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+
+    if (!isConnected_ || !connection_) {
+        setLastError("Database connection is not established");
+        return false;
+    }
+
+    if (query.empty()) {
+        setLastError("Query string is empty");
+        return false;
+    }
+
+    try {
+        // Удаляем комментарии и пустые строки
+        std::string cleanQuery = query;
+
+        // Убираем однострочные комментарии --
+        size_t pos = 0;
+        while ((pos = cleanQuery.find("--", pos)) != std::string::npos) {
+            size_t endLine = cleanQuery.find('\n', pos);
+            if (endLine != std::string::npos) {
+                cleanQuery.erase(pos, endLine - pos);
+            } else {
+                cleanQuery.erase(pos);
+                break;
+            }
+        }
+
+        // Убираем многострочные комментарии /* */
+        pos = 0;
+        while ((pos = cleanQuery.find("/*", pos)) != std::string::npos) {
+            size_t endComment = cleanQuery.find("*/", pos + 2);
+            if (endComment != std::string::npos) {
+                cleanQuery.erase(pos, endComment - pos + 2);
+            } else {
+                // Незакрытый комментарий - удаляем до конца
+                cleanQuery.erase(pos);
+                break;
+            }
+        }
+
+        // Удаляем лишние пробелы и переводы строк
+        cleanQuery.erase(0, cleanQuery.find_first_not_of(" \t\r\n"));
+        cleanQuery.erase(cleanQuery.find_last_not_of(" \t\r\n") + 1);
+
+        if (cleanQuery.empty()) {
+            // Пустой запрос после очистки - не ошибка
+            return true;
+        }
+
+        // Выполняем запрос
+        nanodbc::execute(*connection_, cleanQuery);
+
+        return true;
+
+    } catch (const nanodbc::database_error& e) {
+        // Некоторые ошибки можно игнорировать (например, "table already exists")
+        std::string error_msg = e.what();
+
+        // Проверяем, является ли это "мягкой" ошибкой
+        if (error_msg.find("already exists") != std::string::npos ||
+            error_msg.find("Duplicate") != std::string::npos) {
+            // Таблица/объект уже существует - не критичная ошибка
+            return true;
+        }
+
+        setLastError(std::string("Database error: ") + error_msg);
+        return false;
+
+    } catch (const std::exception& e) {
+        setLastError(std::string("Exception in executeQuery: ") + e.what());
+        return false;
+    }
+}
+
+bool DatabaseManager::initializeStoredProcedures()
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+
+    if (!isConnected_ || !connection_) {
+        setLastError("Database connection is not active");
+        return false;
+    }
+
+    try {
+        // ===================================================
+        // 1. Удаляем процедуру если существует
+        // ===================================================
+        try {
+            nanodbc::execute(*connection_, "DROP PROCEDURE IF EXISTS save_device_measures");
+        } catch (...) {
+            // Игнорируем ошибку, процедура может не существовать
+        }
+
+        // ===================================================
+        // 2. Создаем процедуру save_device_measures
+        // ===================================================
+        // ВАЖНО: Без DELIMITER! Это команда только для mysql cli
+        const std::string createProcSQL = R"(
+CREATE PROCEDURE save_device_measures (
+    IN p_data JSON
+)
+BEGIN
+    DECLARE v_dev_id INT;
+    DECLARE v_cnt INT DEFAULT 0;
+    DECLARE v_keys_len INT;
+    DECLARE i INT DEFAULT 0;
+    DECLARE v_key VARCHAR(50);
+    DECLARE v_value DECIMAL(10,4);
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        -- В случае SQL ошибки возвращаем статус 3
+        SELECT 3 as status, 'Database error occurred' as message;
+    END;
+
+    -- Извлекаем dev_id из JSON
+    SET v_dev_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(p_data, '$.dev_id')) AS UNSIGNED);
+
+    -- Проверяем существование устройства
+    SELECT COUNT(*) INTO v_cnt FROM devices WHERE dev_id = v_dev_id;
+
+    IF v_cnt = 0 THEN
+        -- Устройство не найдено
+        SELECT 2 as status, 'Device not found' as message;
+        LEAVE proc_body;
+    END IF;
+
+    -- Получаем длину массива keys
+    SET v_keys_len = JSON_LENGTH(p_data, '$.keys');
+
+    IF v_keys_len IS NULL OR v_keys_len = 0 THEN
+        -- Пустой или невалидный массив
+        SELECT 1 as status, 'Invalid or empty keys array' as message;
+        LEAVE proc_body;
+    END IF;
+
+    -- Цикл записи данных
+    WHILE i < v_keys_len DO
+        -- Извлекаем название ключа (первый ключ объекта)
+        SET v_key = JSON_UNQUOTE(
+            JSON_EXTRACT(
+                JSON_KEYS(JSON_EXTRACT(p_data, CONCAT('$.keys[', i, ']'))),
+                '$[0]'
+            )
+        );
+
+        -- Извлекаем значение по ключу
+        SET v_value = JSON_EXTRACT(p_data, CONCAT('$.keys[', i, '].', v_key));
+
+        -- Вставляем запись
+        INSERT INTO measures (dev_id, measure_key, measure_value, created_at)
+        VALUES (v_dev_id, v_key, v_value, NOW());
+
+        SET i = i + 1;
+    END WHILE;
+
+    -- Успешное выполнение
+    SELECT 0 as status, 'Data saved successfully' as message, v_keys_len as records_inserted;
+
+    proc_body: BEGIN END;
+END
+        )";
+
+        // Выполняем создание процедуры
+        nanodbc::execute(*connection_, createProcSQL);
+
+        // ===================================================
+        // 3. Проверяем что процедура создана
+        // ===================================================
+        nanodbc::result checkResult = nanodbc::execute(*connection_,
+                                                       "SELECT COUNT(*) FROM information_schema.ROUTINES "
+                                                       "WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_NAME = 'save_device_measures'"
+                                                       );
+
+        if (checkResult.next()) {
+            int count = checkResult.get<int>(0);
+            if (count == 0) {
+                setLastError("Stored procedure was not created");
+                return false;
+            }
+        }
+
+        // Логируем успех (можете заменить на ваш логгер)
+        std::cout << "[DatabaseManager] Stored procedures initialized successfully" << std::endl;
+
+        return true;
+
+    } catch (const nanodbc::database_error& e) {
+        std::string error = "Failed to create stored procedures: " + std::string(e.what());
+        setLastError(error);
+        std::cerr << "[DatabaseManager] ERROR: " << error << std::endl;
+        return false;
+    } catch (const std::exception& e) {
+        std::string error = "Exception while creating stored procedures: " + std::string(e.what());
+        setLastError(error);
+        std::cerr << "[DatabaseManager] ERROR: " << error << std::endl;
+        return false;
+    }
 }
 
 
@@ -401,6 +613,102 @@ bool DatabaseManager::invalidateToken(const std::string& token)
     }
     catch (...) {
         return false;
+    }
+}
+
+DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInput)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+
+    // Проверяем соединение
+    if (!isConnected_ || !connection_) {
+        setLastError("Database connection is not active");
+        return DeviceWriteResult(3, "Database connection is not active");
+    }
+
+    try {
+        // Подготавливаем вызов stored procedure
+        // Используем синтаксис ODBC для вызова процедур: {CALL procedure_name(?, ?)}
+        nanodbc::statement stmt(*connection_);
+
+        // Подготавливаем запрос
+        prepare(stmt, NANODBC_TEXT("{CALL save_device_measures(?, ?)}"));
+
+        // Привязываем входной параметр (JSON данные)
+        stmt.bind(0, jsonInput.c_str());
+
+        // Для OUTPUT параметра нужно использовать другой подход
+        // nanodbc не поддерживает OUT параметры напрямую, поэтому используем SELECT
+
+        // Альтернативный подход: вызываем процедуру и получаем результат через SELECT
+        std::string query = "CALL save_device_measures('" + jsonInput + "', @result); SELECT @result;";
+
+        // Экранируем одинарные кавычки в JSON для безопасности
+        std::string escapedJson = jsonInput;
+        size_t pos = 0;
+        while ((pos = escapedJson.find("'", pos)) != std::string::npos) {
+            escapedJson.replace(pos, 1, "\\'");
+            pos += 2;
+        }
+
+        // Формируем финальный запрос
+        std::string finalQuery = "CALL save_device_measures('" + escapedJson + "', @result)";
+
+        // Выполняем процедуру
+        nanodbc::execute(*connection_, finalQuery);
+
+        // Получаем результат из переменной @result
+        nanodbc::result result = nanodbc::execute(*connection_, NANODBC_TEXT("SELECT @result AS result"));
+
+        if (result.next()) {
+            std::string jsonOutput = result.get<std::string>(0);
+
+            // Парсим JSON ответ (используйте вашу jsonlib или jsoncpp)
+            // Предполагаем формат: {"status": 0/1/2, "message": "..."}
+
+            // Простой парсинг для извлечения статуса
+            size_t statusPos = jsonOutput.find("\"status\"");
+            if (statusPos != std::string::npos) {
+                size_t colonPos = jsonOutput.find(":", statusPos);
+                size_t commaPos = jsonOutput.find(",", colonPos);
+                if (colonPos != std::string::npos) {
+                    std::string statusStr = jsonOutput.substr(colonPos + 1, commaPos - colonPos - 1);
+                    // Убираем пробелы
+                    statusStr.erase(0, statusStr.find_first_not_of(" \t\n\r"));
+                    statusStr.erase(statusStr.find_last_not_of(" \t\n\r") + 1);
+
+                    int status = std::stoi(statusStr);
+
+                    // Извлекаем message если есть
+                    std::string message = "";
+                    size_t msgPos = jsonOutput.find("\"message\"");
+                    if (msgPos != std::string::npos) {
+                        size_t msgColonPos = jsonOutput.find(":", msgPos);
+                        size_t msgStartQuote = jsonOutput.find("\"", msgColonPos);
+                        size_t msgEndQuote = jsonOutput.find("\"", msgStartQuote + 1);
+                        if (msgStartQuote != std::string::npos && msgEndQuote != std::string::npos) {
+                            message = jsonOutput.substr(msgStartQuote + 1, msgEndQuote - msgStartQuote - 1);
+                        }
+                    }
+
+                    return DeviceWriteResult(status, message);
+                }
+            }
+
+            // Если не смогли распарсить, возвращаем сырой результат
+            return DeviceWriteResult(0, jsonOutput);
+        }
+
+        return DeviceWriteResult(3, "No result from stored procedure");
+
+    } catch (const nanodbc::database_error& e) {
+        std::string error = "Database error: " + std::string(e.what());
+        setLastError(error);
+        return DeviceWriteResult(3, error);
+    } catch (const std::exception& e) {
+        std::string error = "Exception: " + std::string(e.what());
+        setLastError(error);
+        return DeviceWriteResult(3, error);
     }
 }
 

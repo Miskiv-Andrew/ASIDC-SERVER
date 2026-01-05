@@ -99,3 +99,34 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     ${CMAKE_SOURCE_DIR}/config
     $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
+
+# =========================
+# SQL Script copy
+# =========================
+# Путь к SQL скрипту
+set(SQL_INIT_FILE "${CMAKE_SOURCE_DIR}/db/init/001_init.sql")
+
+# Проверяем существование файла
+if(EXISTS "${SQL_INIT_FILE}")
+    message(STATUS "SQL init file found: ${SQL_INIT_FILE}")
+
+    # Создаем структуру папок db/init/ рядом с exe
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/db/init"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SQL_INIT_FILE}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/db/init/001_init.sql"
+        COMMENT "Copying SQL initialization script to db/init/"
+    )
+
+    # Также копируем в корень рядом с exe (для удобства)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SQL_INIT_FILE}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/001_init.sql"
+        COMMENT "Copying SQL script to exe directory"
+    )
+else()
+    message(WARNING "SQL init file NOT found: ${SQL_INIT_FILE}")
+endif()

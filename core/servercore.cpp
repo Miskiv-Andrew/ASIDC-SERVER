@@ -397,6 +397,11 @@ int ServerCore::handleRequest(mg_connection *conn)
         handlePostAuthRefresh(conn);
     }
 
+    else if (uri == "/api/dev/write") {
+        handleDeviceDataWrite(conn);
+    }
+
+
     else {
         mg_send_http_error(conn, 404, "Not Found");
         logMessage("404 Not Found: " + uri);
@@ -435,6 +440,8 @@ void ServerCore::handlePostStatus(mg_connection *conn)
                                                 "}";
     sendResponse(conn, response, "application/json");
 }
+
+
 
 void ServerCore::handlePostTest(mg_connection *conn)
 {
@@ -2093,6 +2100,90 @@ void ServerCore::handlePostAuthRefresh(mg_connection* conn)
     sendJsonResponse(conn, successResp, 200);
     logMessage("Token refreshed for user: " + refreshResult.login +
                " (old_token: " + old_token.substr(0, 8) + "...)");
+}
+
+void ServerCore::handleDeviceDataWrite(mg_connection *conn)
+{
+    // === ПРОВЕРКА 1: currentInstance ===
+    if (!currentInstance) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Server instance not available";
+        sendJsonResponse(conn, errorResp, 500);
+        return;
+    }
+
+    // === ПРОВЕРКА 2: База данных подключена ===
+    if (!currentInstance->dbManager.isConnected()) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Database not connected";
+        sendJsonResponse(conn, errorResp, 500);
+        return;
+    }
+
+    // 1. Аутентификация (любая роль)
+    TokenValidationResult userData;
+    if (!authenticateRequest(conn, userData, "executor")) {
+        return;
+    }
+
+    // 2. Чтение тела запроса
+    std::string requestBody = readRequestBody(conn);
+    if (requestBody.empty()) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Empty request body";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 3. Парсинг JSON для базовой валидации
+    Json::Value jsonRequest;
+    std::string parseError;
+    if (!parseJsonRequest(requestBody, jsonRequest, parseError)) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = parseError;
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 4. Проверяем наличие обязательных полей
+    if (!jsonRequest.isMember("dev_id") || !jsonRequest.isMember("keys")) {
+        Json::Value errorResp;
+        errorResp["status"] = "error";
+        errorResp["message"] = "Missing required fields: dev_id or keys";
+        sendJsonResponse(conn, errorResp, 400);
+        return;
+    }
+
+    // 5. Вызываем метод DatabaseManager для записи данных
+    DeviceWriteResult result = currentInstance->dbManager.saveDeviceMeasures(requestBody);
+
+    // 6. Формируем ответ
+    Json::Value response;
+
+    if (result.success) {
+        response["status"] = result.status;
+        if (!result.message.empty()) {
+            response["message"] = result.message;
+        }
+        sendJsonResponse(conn, response, 200);
+    } else {
+        response["status"] = result.status;
+        response["message"] = result.message.empty() ? "Operation failed" : result.message;
+
+        // Определяем HTTP статус код в зависимости от типа ошибки
+        int httpStatus = 500;
+        if (result.status == 1) {
+            httpStatus = 400; // Ошибка в данных
+        } else if (result.status == 2) {
+            httpStatus = 404; // Устройство не найдено
+        }
+
+        sendJsonResponse(conn, response, httpStatus);
+    }
 }
 
 

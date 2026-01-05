@@ -82,6 +82,20 @@ struct TokenValidationResult {
         is_suspicious(false) {}
 };
 
+
+/**
+ * @struct DeviceWriteResult
+ * @brief Результат записи данных устройства.
+ */
+struct DeviceWriteResult {
+    bool success;          ///< Флаг успешности операции
+    int status;            ///< Статус: 0 - успех, 1 - ошибка в данных, 2 - устройство не найдено, 3 - ошибка БД
+    std::string message;   ///< Сообщение об ошибке или успехе
+
+    DeviceWriteResult() : success(false), status(3) {}
+    DeviceWriteResult(int s, const std::string& msg) : success(s == 0), status(s), message(msg) {}
+};
+
 /**
  * @class DatabaseManager
  * @brief Класс для управления подключением и выполнением запросов к базе данных.
@@ -147,6 +161,31 @@ public:
      * @return Текст последней зарегистрированной ошибки или пустая строка.
      */
     std::string getLastError() const;
+
+    /**
+     * @brief Выполняет произвольный SQL запрос без возврата результата.
+     *
+     * Используется для выполнения DDL команд (CREATE, ALTER, DROP) и DML команд
+     * (INSERT, UPDATE, DELETE) которые не возвращают набор данных.
+     *
+     * @param query SQL запрос для выполнения.
+     * @return true - запрос выполнен успешно, false - произошла ошибка.
+     *
+     * @note Для SELECT запросов используйте другие методы.
+     * @note Поддерживает многострочные запросы и комментарии SQL.
+     * @warning Метод не выполняет валидацию SQL - убедитесь в корректности запроса.
+     */
+    bool executeQuery(const std::string& query);
+
+    /**
+     * @brief Инициализирует все необходимые stored procedures в БД.
+     *
+     * Создает или пересоздает процедуры, необходимые для работы системы.
+     * Вызывается автоматически при инициализации соединения с БД.
+     *
+     * @return true если все процедуры созданы успешно, false при ошибке.
+     */
+    bool initializeStoredProcedures();
 
     // === Методы аутентификации и работы с пользователями ===
 
@@ -243,6 +282,17 @@ public:
      * @note Удаление несуществующего токена считается успешной операцией.
      */
     bool invalidateToken(const std::string& token);
+
+    /**
+     * @brief Записывает данные устройства через stored procedure.
+     *
+     * Вызывает MySQL процедуру save_device_measures для сохранения данных.
+     *
+     * @param jsonInput JSON-строка с данными устройства в формате:
+     *                  {"dev_id":"1","keys":[{"temp":23.5},{"hum":45.2},...]}
+     * @return DeviceWriteResult с результатом операции.
+     */
+    DeviceWriteResult saveDeviceMeasures(const std::string& jsonInput);
 
     // === Структуры для возврата результатов ===
 
