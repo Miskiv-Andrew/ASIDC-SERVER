@@ -630,9 +630,16 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
         // Подготавливаем вызов stored procedure
         // Используем синтаксис ODBC для вызова процедур: {CALL procedure_name(?, ?)}
         nanodbc::statement stmt(*connection_);
+        prepare(stmt, NANODBC_TEXT("{CALL save_device_measures(?)}"));
+
+        // Bind JSON input safely (as a string)
+        stmt.bind(0, jsonInput.c_str());
+
+        // Execute the procedure
+        nanodbc::result result = nanodbc::execute(stmt);
 
         // Подготавливаем запрос
-        prepare(stmt, NANODBC_TEXT("{CALL save_device_measures(?, ?)}"));
+        /*prepare(stmt, NANODBC_TEXT("{CALL save_device_measures(?, ?)}"));
 
         // Привязываем входной параметр (JSON данные)
         stmt.bind(0, jsonInput.c_str());
@@ -641,7 +648,7 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
         // nanodbc не поддерживает OUT параметры напрямую, поэтому используем SELECT
 
         // Альтернативный подход: вызываем процедуру и получаем результат через SELECT
-        std::string query = "CALL save_device_measures('" + jsonInput + "', @result); SELECT @result;";
+       // std::string query = "CALL save_device_measures('" + jsonInput + "', @result); SELECT @result;";
 
         // Экранируем одинарные кавычки в JSON для безопасности
         std::string escapedJson = jsonInput;
@@ -659,6 +666,7 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
 
         // Получаем результат из переменной @result
         nanodbc::result result = nanodbc::execute(*connection_, NANODBC_TEXT("SELECT @result AS result"));
+        */
 
         if (result.next()) {
             std::string jsonOutput = result.get<std::string>(0);
