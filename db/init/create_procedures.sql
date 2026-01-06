@@ -1,6 +1,16 @@
+-- ==================================================
+-- Файл: create_procedures.sql
+-- Описание: Создание stored procedures для проекта
+-- ==================================================
+USE guarder_base;  -- Замените на имя вашей БД
+
+-- Удаляем процедуру если существует
 DROP PROCEDURE IF EXISTS save_device_measures;
+
+-- Меняем разделитель для корректного создания процедуры
 DELIMITER $$
 
+-- Создаем процедуру
 CREATE PROCEDURE save_device_measures (
     IN p_data JSON
 )
@@ -19,6 +29,7 @@ proc_body: BEGIN
     SELECT COUNT(*) INTO v_cnt FROM devices WHERE dev_id = v_dev_id;
 
     IF v_cnt = 0 THEN
+		-- Устройство не найдено
         SELECT 2 AS status, 'Device not found' AS message;
         LEAVE proc_body;
     END IF;
@@ -27,27 +38,32 @@ proc_body: BEGIN
     SET v_keys_len = JSON_LENGTH(p_data, '$.keys');
 
     IF v_keys_len IS NULL OR v_keys_len = 0 THEN
+        -- Пустой или невалидный массив
         SELECT 1 AS status, 'Invalid or empty keys array' AS message;
         LEAVE proc_body;
     END IF;
 
     -- Цикл записи данных
     WHILE i < v_keys_len DO
+        -- Извлекаем название ключа (первый ключ объекта)
         SET v_key = JSON_UNQUOTE(
             JSON_EXTRACT(
                 JSON_KEYS(JSON_EXTRACT(p_data, CONCAT('$.keys[', i, ']'))),
                 '$[0]'
             )
         );
-
+        
+        -- Извлекаем значение по ключу
         SET v_value = JSON_EXTRACT(p_data, CONCAT('$.keys[', i, '].', v_key));
-
+        
+        -- Вставляем запись
         INSERT INTO measures (dev_id, measure_key, measure_value, created_at)
         VALUES (v_dev_id, v_key, v_value, NOW());
 
         SET i = i + 1;
     END WHILE;
-
+    
+    -- Успешное выполнение
     SELECT 0 AS status, 'Data saved successfully' AS message, v_keys_len AS records_inserted;
 END$$
 

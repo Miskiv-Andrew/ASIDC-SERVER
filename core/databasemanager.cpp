@@ -241,7 +241,7 @@ bool DatabaseManager::initializeStoredProcedures()
 CREATE PROCEDURE save_device_measures (
     IN p_data JSON
 )
-BEGIN
+proc_body: BEGIN
     DECLARE v_dev_id INT;
     DECLARE v_cnt INT DEFAULT 0;
     DECLARE v_keys_len INT;
@@ -298,8 +298,7 @@ BEGIN
     -- Успешное выполнение
     SELECT 0 as status, 'Data saved successfully' as message, v_keys_len as records_inserted;
 
-    proc_body: BEGIN END;
-END
+END;
         )";
 
         // Выполняем создание процедуры
