@@ -96,6 +96,12 @@ struct DeviceWriteResult {
     DeviceWriteResult(int s, const std::string& msg) : success(s == 0), status(s), message(msg) {}
 };
 
+struct MeasureRow {
+    std::string timestamp;
+    std::string key;
+    double value;
+};
+
 /**
  * @class DatabaseManager
  * @brief Класс для управления подключением и выполнением запросов к базе данных.
@@ -293,6 +299,16 @@ public:
      * @return DeviceWriteResult с результатом операции.
      */
     DeviceWriteResult saveDeviceMeasures(const std::string& jsonInput);
+
+    std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(
+        int devId,
+        const std::string& dateFrom,
+        const std::string& dateTo,
+        int limit,
+        int offset
+        );
+
+    int DatabaseManager::getMeasuresTotalCount();
 
     // === Структуры для возврата результатов ===
 

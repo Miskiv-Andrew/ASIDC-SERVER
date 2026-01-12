@@ -401,6 +401,9 @@ int ServerCore::handleRequest(mg_connection *conn)
         handleDeviceDataWrite(conn);
     }
 
+    else if(uri == "/api/dev/read") {
+        handleDeviceDataRead(conn);
+    }
 
     else {
         mg_send_http_error(conn, 404, "Not Found");
@@ -2184,6 +2187,139 @@ void ServerCore::handleDeviceDataWrite(mg_connection *conn)
 
         sendJsonResponse(conn, response, httpStatus);
     }
+}
+
+void ServerCore::handleDeviceDataRead(mg_connection* conn)
+{
+    // === ПРОВЕРКА 1: currentInstance ===
+    if (!currentInstance) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Server instance not available";
+        sendJsonResponse(conn, err, 500);
+        return;
+    }
+
+    // === ПРОВЕРКА 2: База данных подключена ===
+    if (!currentInstance->dbManager.isConnected()) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Database not connected";
+        sendJsonResponse(conn, err, 500);
+        return;
+    }
+
+    // 1. Аутентификация (любая роль)
+    TokenValidationResult userData;
+    if (!authenticateRequest(conn, userData, "executor")) {
+        return;
+    }
+
+    // 2. Чтение тела запроса
+    std::string body = readRequestBody(conn);
+    if (body.empty()) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Empty request body";
+        sendJsonResponse(conn, err, 400);
+        return;
+    }
+
+    // 3. Парсинг JSON для базовой валидации
+    Json::Value req;
+    std::string parseError;
+    if (!parseJsonRequest(body, req, parseError)) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = parseError;
+        sendJsonResponse(conn, err, 400);
+        return;
+    }
+
+    // 4. Проверяем наличие обязательных полей
+    if (!req.isMember("dev_id") || !req.isMember("filters")) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Missing dev_id or filters";
+        sendJsonResponse(conn, err, 400);
+        return;
+    }
+
+    const Json::Value& filters = req["filters"];
+
+    //check data
+    if (!filters.isMember("date_from") || !filters.isMember("date_to")) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Missing date_from or date_to";
+        sendJsonResponse(conn, err, 400);
+        return;
+    }
+
+    int devId = req["dev_id"].asInt();
+    std::string dateFrom = filters["date_from"].asString();
+    std::string dateTo   = filters["date_to"].asString();
+    int limit  = filters.get("limit", 100).asInt();
+    int offset = filters.get("offset", 0).asInt();
+    int totalCount = currentInstance->dbManager.getMeasuresTotalCount();
+
+    // === 7. Call DB ===
+    auto rows = currentInstance->dbManager.readDeviceMeasures(
+        devId, dateFrom, dateTo, limit, offset
+        );
+
+    if (rows.empty()) {
+        Json::Value response;
+        response["status"] = "success";
+        response["total_count"] = 0;
+        response["data"] = Json::arrayValue;
+        sendJsonResponse(conn, response, 200);
+        return;
+    }
+
+    std::map<std::string, Json::Value> grouped;
+
+    //pivot rows into record
+    for (const auto& r : rows) {
+        if (!grouped.count(r.timestamp)) {
+            Json::Value obj;
+            obj["timestamp"] = r.timestamp;
+            grouped[r.timestamp] = obj;
+        }
+        double rounded = std::round(r.value * 100.0) / 100.0;
+        grouped[r.timestamp][r.key] = rounded;
+    }
+
+    Json::Value data(Json::arrayValue);
+    for (auto& [_, obj] : grouped) {
+        data.append(obj);
+    }
+
+    Json::Value columns(Json::arrayValue);
+
+    //build columns array
+    if (req.isMember("filters") && req["filters"].isMember("keys")) {
+        const Json::Value& keys = req["filters"]["keys"];
+        for (Json::ValueConstIterator it = keys.begin(); it != keys.end(); ++it) {
+            columns.append(it->asString());
+        }
+    } else {
+        // fallback: include default columns
+        columns.append("temp");
+        columns.append("hum");
+        columns.append("pressure");
+        columns.append("rad");
+    }
+
+    //build response
+    Json::Value response;
+    response["status"] = "success";
+    response["total_count"] = totalCount;
+    response["records_returned"] = (int)data.size();
+    response["columns"] = columns;
+    response["data"] = data;
+
+    sendJsonResponse(conn, response, 200);
 }
 
 

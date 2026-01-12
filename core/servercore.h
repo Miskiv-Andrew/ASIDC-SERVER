@@ -266,6 +266,8 @@ private:
      */
     static void handleDeviceDataWrite(mg_connection* conn);
 
+    static void handleDeviceDataRead(mg_connection* conn);
+
     /**
      * @brief Экранирует HTML-символы для безопасной вставки в JSON.
      *

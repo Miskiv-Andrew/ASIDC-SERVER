@@ -307,17 +307,57 @@ END;
         // ===================================================
         // 3. Проверяем что процедура создана
         // ===================================================
-        nanodbc::result checkResult = nanodbc::execute(*connection_,
+        /*nanodbc::result checkResult = nanodbc::execute(*connection_,
                                                        "SELECT COUNT(*) FROM information_schema.ROUTINES "
                                                        "WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_NAME = 'save_device_measures'"
                                                        );
+        */
 
-        if (checkResult.next()) {
+        // ===================================================
+        // CREATE read_device_measures
+        // ===================================================
+        const std::string createReadProcSQL = R"(
+CREATE PROCEDURE read_device_measures (
+    IN p_dev_id INT,
+    IN p_date_from DATETIME,
+    IN p_date_to DATETIME,
+    IN p_limit INT,
+    IN p_offset INT
+)
+BEGIN
+    SELECT
+        created_at,
+        measure_key,
+        measure_value
+    FROM measures
+    WHERE dev_id = p_dev_id
+      AND created_at BETWEEN p_date_from AND p_date_to
+    ORDER BY created_at
+    LIMIT p_limit OFFSET p_offset;
+END;
+        )";
+
+        nanodbc::execute(*connection_, createReadProcSQL);
+
+        // ===================================================
+        // VERIFY PROCEDURES EXIST
+        // ===================================================
+        nanodbc::result checkResult = nanodbc::execute(*connection_,
+                                                       "SELECT COUNT(*) FROM information_schema.ROUTINES "
+                                                       "WHERE ROUTINE_SCHEMA = DATABASE() "
+                                                       "AND ROUTINE_NAME IN ('save_device_measures', 'read_device_measures')"
+                                                       );
+
+        /*if (checkResult.next()) {
             int count = checkResult.get<int>(0);
             if (count == 0) {
                 setLastError("Stored procedure was not created");
                 return false;
             }
+        } */
+        if (checkResult.next() && checkResult.get<int>(0) != 2) {
+            setLastError("Not all stored procedures were created");
+            return false;
         }
 
         // Логируем успех (можете заменить на ваш логгер)
@@ -337,7 +377,6 @@ END;
         return false;
     }
 }
-
 
 AuthResult DatabaseManager::authenticateUser(const std::string& login, const std::string& password)
 {
@@ -719,6 +758,69 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
     }
 }
 
+std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std::string& dateFrom, const std::string& dateTo, int limit, int offset)
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+
+    std::vector<MeasureRow> rows;
+
+    if (!isConnected_ || !connection_) {
+        setLastError("Database connection is not active");
+        return rows;
+    }
+
+    try {
+        nanodbc::statement stmt(*connection_);
+
+        // ODBC stored procedure call
+        prepare(stmt, NANODBC_TEXT("{CALL read_device_measures(?, ?, ?, ?, ?)}"));
+
+        stmt.bind(0, &devId);
+        stmt.bind(1, dateFrom.c_str());
+        stmt.bind(2, dateTo.c_str());
+        stmt.bind(3, &limit);
+        stmt.bind(4, &offset);
+
+        nanodbc::result result = nanodbc::execute(stmt);
+
+        while (result.next()) {
+            MeasureRow row;
+
+            // Column order MUST match SELECT in procedure
+            row.timestamp = result.get<std::string>(0); // created_at
+            row.key       = result.get<std::string>(1); // measure_key
+            row.value     = result.get<double>(2);      // measure_value
+
+            rows.push_back(std::move(row));
+        }
+
+    } catch (const nanodbc::database_error& e) {
+        setLastError(std::string("DB error: ") + e.what());
+    } catch (const std::exception& e) {
+        setLastError(std::string("Exception: ") + e.what());
+    }
+    
+    // Возвращаем вектор строк (может быть пустым при ошибке)
+    return rows;
+}
+
+// функція запиту для отримання числа всіх записів в таблиці
+int DatabaseManager::getMeasuresTotalCount()
+{
+    std::lock_guard<std::mutex> lock(dbMutex_);
+
+    if (!isConnected_ || !connection_) {
+        return 0;
+    }
+
+    nanodbc::result res = nanodbc::execute(*connection_, "SELECT COUNT(*) FROM measures");
+
+    if (res.next()) {
+        return res.get<int>(0);
+    }
+
+    return 0;
+}
 
 TokenValidationResult DatabaseManager::validateToken(const std::string& token,
                                                      const std::string& current_ip,
