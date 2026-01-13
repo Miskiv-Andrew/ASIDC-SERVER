@@ -2247,21 +2247,24 @@ void ServerCore::handleDeviceDataRead(mg_connection* conn)
 
     const Json::Value& filters = req["filters"];
 
-    //check data
-    if (!filters.isMember("date_from") || !filters.isMember("date_to")) {
-        Json::Value err;
-        err["status"] = "error";
-        err["message"] = "Missing date_from or date_to";
-        sendJsonResponse(conn, err, 400);
-        return;
+    //check timestamps data
+    std::optional<std::string> dateFrom;
+    std::optional<std::string> dateTo;
+
+    if (filters.isMember("date_from") && filters["date_from"].isString()) {
+        dateFrom = filters["date_from"].asString();
+    }
+
+    if (filters.isMember("date_to") && filters["date_to"].isString()) {
+        dateTo = filters["date_to"].asString();
     }
 
     int devId = req["dev_id"].asInt();
-    std::string dateFrom = filters["date_from"].asString();
-    std::string dateTo   = filters["date_to"].asString();
+    //std::string dateFrom = filters["date_from"].asString();
+    //std::string dateTo   = filters["date_to"].asString();
     int limit  = filters.get("limit", 100).asInt();
     int offset = filters.get("offset", 0).asInt();
-    int totalCount = currentInstance->dbManager.getMeasuresTotalCount();
+    int totalCount = currentInstance->dbManager.getMeasuresTotalCount(devId);
 
     // === 7. Call DB ===
     auto rows = currentInstance->dbManager.readDeviceMeasures(

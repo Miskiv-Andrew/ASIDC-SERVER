@@ -302,13 +302,13 @@ public:
 
     std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(
         int devId,
-        const std::string& dateFrom,
-        const std::string& dateTo,
+        const std::optional<std::string>& dateFrom,
+        const std::optional<std::string>& dateTo,
         int limit,
         int offset
         );
 
-    int DatabaseManager::getMeasuresTotalCount();
+    int DatabaseManager::getMeasuresTotalCount(int devId);
 
     // === Структуры для возврата результатов ===
 

@@ -304,6 +304,11 @@ END;
         // Выполняем создание процедуры
         nanodbc::execute(*connection_, createProcSQL);
 
+        try {
+            nanodbc::execute(*connection_, "DROP PROCEDURE IF EXISTS read_device_measures");
+        } catch (...) {
+            // Игнорируем ошибку, процедура может не существовать
+        }
         // ===================================================
         // 3. Проверяем что процедура создана
         // ===================================================
@@ -322,18 +327,25 @@ CREATE PROCEDURE read_device_measures (
     IN p_date_from DATETIME,
     IN p_date_to DATETIME,
     IN p_limit INT,
-    IN p_offset INT
-)
+    IN p_offset INT )
 BEGIN
+    SELECT COUNT(*)
+    INTO @total_count
+    FROM measures
+    WHERE dev_id = p_dev_id
+      AND (p_date_from IS NULL OR created_at >= p_date_from)
+      AND (p_date_to   IS NULL OR created_at <= p_date_to);
     SELECT
         created_at,
         measure_key,
         measure_value
-    FROM measures
-    WHERE dev_id = p_dev_id
-      AND created_at BETWEEN p_date_from AND p_date_to
+    FROM measures m
+    WHERE m.dev_id = p_dev_id
+        AND (p_date_from IS NULL OR m.created_at >= p_date_from)
+        AND (p_date_to IS NULL OR m.created_at <= p_date_to)
     ORDER BY created_at
     LIMIT p_limit OFFSET p_offset;
+    SELECT @total_count AS total_count;
 END;
         )";
 
@@ -758,7 +770,7 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
     }
 }
 
-std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std::string& dateFrom, const std::string& dateTo, int limit, int offset)
+std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std::optional<std::string>& dateFrom, const std::optional<std::string>& dateTo, int limit, int offset)
 {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
@@ -775,11 +787,37 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
         // ODBC stored procedure call
         prepare(stmt, NANODBC_TEXT("{CALL read_device_measures(?, ?, ?, ?, ?)}"));
 
+        int dev_id   = devId;
+        int lim      = limit;
+        int off      = offset;
+
+        stmt.bind(0, &dev_id);
+
+        // Optional date_from
+        if (dateFrom.has_value())
+            stmt.bind(1, dateFrom->c_str());
+        else
+            stmt.bind_null(1);
+
+        // Optional date_to
+        if (dateTo.has_value())
+            stmt.bind(2, dateTo->c_str());
+        else
+            stmt.bind_null(2);
+
+        stmt.bind(3, &lim);
+        stmt.bind(4, &off);
+
+        /*
+        std::string df = dateFrom.value_or("");
+        std::string dt = dateTo.value_or("");
+
         stmt.bind(0, &devId);
-        stmt.bind(1, dateFrom.c_str());
-        stmt.bind(2, dateTo.c_str());
+        stmt.bind(1, df.c_str());
+        stmt.bind(2, dt.c_str());
         stmt.bind(3, &limit);
         stmt.bind(4, &offset);
+        */
 
         nanodbc::result result = nanodbc::execute(stmt);
 
@@ -794,6 +832,7 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
             rows.push_back(std::move(row));
         }
 
+
     } catch (const nanodbc::database_error& e) {
         setLastError(std::string("DB error: ") + e.what());
     } catch (const std::exception& e) {
@@ -805,7 +844,7 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
 }
 
 // функція запиту для отримання числа всіх записів в таблиці
-int DatabaseManager::getMeasuresTotalCount()
+int DatabaseManager::getMeasuresTotalCount(int devId)
 {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
@@ -813,14 +852,29 @@ int DatabaseManager::getMeasuresTotalCount()
         return 0;
     }
 
-    nanodbc::result res = nanodbc::execute(*connection_, "SELECT COUNT(*) FROM measures");
+    try {
+        nanodbc::statement stmt(*connection_);
 
-    if (res.next()) {
-        return res.get<int>(0);
+        // Simple COUNT query
+        const std::string query = "SELECT COUNT(DISTINCT created_at) FROM measures WHERE dev_id = ?";
+        prepare(stmt, NANODBC_TEXT(query));
+
+        stmt.bind(0, &devId);
+
+        nanodbc::result res = nanodbc::execute(stmt);
+
+        if (res.next()) {
+            return res.get<int>(0); // total count
+        }
+    } catch (const nanodbc::database_error& e) {
+        setLastError(std::string("DB error: ") + e.what());
+    } catch (const std::exception& e) {
+        setLastError(std::string("Exception: ") + e.what());
     }
 
-    return 0;
+    return 0; // fallback
 }
+
 
 TokenValidationResult DatabaseManager::validateToken(const std::string& token,
                                                      const std::string& current_ip,
