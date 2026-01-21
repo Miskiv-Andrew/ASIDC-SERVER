@@ -4,7 +4,7 @@
 #include <ctime>
 #include <unordered_map>
 #include <mutex>
-
+#include <set>
 // В начале servercore.cpp
 #include <fstream>      // для std::ifstream
 #include <string>       // для std::string
@@ -2260,17 +2260,29 @@ void ServerCore::handleDeviceDataRead(mg_connection* conn)
     }
 
     int devId = req["dev_id"].asInt();
-    //std::string dateFrom = filters["date_from"].asString();
-    //std::string dateTo   = filters["date_to"].asString();
     int limit  = filters.get("limit", 100).asInt();
     int offset = filters.get("offset", 0).asInt();
     int totalCount = currentInstance->dbManager.getMeasuresTotalCount(devId);
 
+    // 9. Optional area
+    std::optional<std::string> area;
+    if (filters.isMember("area") && filters["area"].isString())
+        area = filters["area"].asString();
+
+    //keysjson
+    std::optional<std::string> keysJson;
+    if (filters.isMember("keys") && filters["keys"].isArray()) {
+        Json::StreamWriterBuilder w;
+        w["indentation"] = "";
+        keysJson = Json::writeString(w, filters["keys"]);
+    }
+
     // === 7. Call DB ===
     auto rows = currentInstance->dbManager.readDeviceMeasures(
-        devId, dateFrom, dateTo, limit, offset
+        devId, dateFrom, dateTo, area, keysJson, limit, offset
         );
 
+    //response when 0 returned rows
     if (rows.empty()) {
         Json::Value response;
         response["status"] = "success";
@@ -2289,8 +2301,8 @@ void ServerCore::handleDeviceDataRead(mg_connection* conn)
             obj["timestamp"] = r.timestamp;
             grouped[r.timestamp] = obj;
         }
-        double rounded = std::round(r.value * 100.0) / 100.0;
-        grouped[r.timestamp][r.key] = rounded;
+        //double rounded = std::round(r.value * 100.0) / 100.0;
+        grouped[r.timestamp][r.key] = r.value;
     }
 
     Json::Value data(Json::arrayValue);
@@ -2298,20 +2310,13 @@ void ServerCore::handleDeviceDataRead(mg_connection* conn)
         data.append(obj);
     }
 
+    //columns array
     Json::Value columns(Json::arrayValue);
-
-    //build columns array
-    if (req.isMember("filters") && req["filters"].isMember("keys")) {
-        const Json::Value& keys = req["filters"]["keys"];
-        for (Json::ValueConstIterator it = keys.begin(); it != keys.end(); ++it) {
-            columns.append(it->asString());
+    if (!data.empty()) {
+        const Json::Value& firstRow = data[0];
+        for (Json::ValueConstIterator it = firstRow.begin(); it != firstRow.end(); ++it) {
+            columns.append(it.key().asString());
         }
-    } else {
-        // fallback: include default columns
-        columns.append("temp");
-        columns.append("hum");
-        columns.append("pressure");
-        columns.append("rad");
     }
 
     //build response

@@ -99,7 +99,7 @@ struct DeviceWriteResult {
 struct MeasureRow {
     std::string timestamp;
     std::string key;
-    double value;
+    std::string value;
 };
 
 /**
@@ -304,6 +304,8 @@ public:
         int devId,
         const std::optional<std::string>& dateFrom,
         const std::optional<std::string>& dateTo,
+        const std::optional<std::string>& areaPolygon,
+        const std::optional<std::string>& keysJson,
         int limit,
         int offset
         );

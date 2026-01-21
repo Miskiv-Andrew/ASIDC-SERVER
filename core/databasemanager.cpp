@@ -229,6 +229,7 @@ bool DatabaseManager::initializeStoredProcedures()
         // ===================================================
         try {
             nanodbc::execute(*connection_, "DROP PROCEDURE IF EXISTS save_device_measures");
+            nanodbc::execute(*connection_, "DROP PROCEDURE IF EXISTS read_device_measures");
         } catch (...) {
             // Игнорируем ошибку, процедура может не существовать
         }
@@ -304,11 +305,11 @@ END;
         // Выполняем создание процедуры
         nanodbc::execute(*connection_, createProcSQL);
 
-        try {
+        /*try {
             nanodbc::execute(*connection_, "DROP PROCEDURE IF EXISTS read_device_measures");
         } catch (...) {
             // Игнорируем ошибку, процедура может не существовать
-        }
+        }/*
         // ===================================================
         // 3. Проверяем что процедура создана
         // ===================================================
@@ -326,26 +327,65 @@ CREATE PROCEDURE read_device_measures (
     IN p_dev_id INT,
     IN p_date_from DATETIME,
     IN p_date_to DATETIME,
+    IN p_area TEXT,
+    IN p_keys JSON,
     IN p_limit INT,
-    IN p_offset INT )
+    IN p_offset INT
+)
 BEGIN
-    SELECT COUNT(*)
-    INTO @total_count
-    FROM measures
-    WHERE dev_id = p_dev_id
-      AND (p_date_from IS NULL OR created_at >= p_date_from)
-      AND (p_date_to   IS NULL OR created_at <= p_date_to);
+    -- перевірка на наявність фільтрів keys
+    IF p_keys IS NOT NULL AND JSON_LENGTH(p_keys) = 0 THEN
+        SET p_keys = NULL;
+    END IF;
     SELECT
-        created_at,
-        measure_key,
-        measure_value
-    FROM measures m
+        m.created_at,
+        m.measure_key,
+        m.measure_value
+    FROM measures AS m
+    JOIN (
+        SELECT t.created_at
+        FROM (
+            SELECT
+                created_at,
+                MAX(CASE WHEN measure_key = 'lat'  THEN measure_value END) AS lat,
+                MAX(CASE WHEN measure_key = 'long' THEN measure_value END) AS lon
+            FROM measures
+            WHERE dev_id = p_dev_id
+            -- сортування по даті
+              AND (p_date_from IS NULL OR created_at >= p_date_from)
+              AND (p_date_to   IS NULL OR created_at <= p_date_to)
+            GROUP BY created_at
+        ) t
+        WHERE
+            -- сортування по площі
+            p_area IS NULL
+            OR (
+                t.lat IS NOT NULL
+                AND t.lon IS NOT NULL
+                AND ST_Contains(
+                    ST_SRID(ST_GeomFromText(p_area), 4326),
+                    ST_SRID(POINT(t.lon, t.lat), 4326)
+                )
+            )
+        ORDER BY t.created_at
+        LIMIT p_limit OFFSET p_offset
+    ) limited
+      ON limited.created_at = m.created_at
     WHERE m.dev_id = p_dev_id
-        AND (p_date_from IS NULL OR m.created_at >= p_date_from)
-        AND (p_date_to IS NULL OR m.created_at <= p_date_to)
-    ORDER BY created_at
-    LIMIT p_limit OFFSET p_offset;
-    SELECT @total_count AS total_count;
+    -- сортування по ключам (віртуальна таблиця keys)
+    AND (
+          p_keys IS NULL
+          OR m.measure_key IN (
+              SELECT jt.key_name
+              FROM JSON_TABLE(
+                  p_keys,
+                  '$[*]' COLUMNS (
+                      key_name VARCHAR(64) PATH '$'
+                  )
+              ) jt
+          )
+      )
+    ORDER BY m.created_at;
 END;
         )";
 
@@ -770,7 +810,7 @@ DeviceWriteResult DatabaseManager::saveDeviceMeasures(const std::string &jsonInp
     }
 }
 
-std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std::optional<std::string>& dateFrom, const std::optional<std::string>& dateTo, int limit, int offset)
+std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std::optional<std::string>& dateFrom, const std::optional<std::string>& dateTo, const std::optional<std::string>& areaPolygon, const std::optional<std::string>& keysJson, int limit, int offset)
 {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
@@ -785,7 +825,7 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
         nanodbc::statement stmt(*connection_);
 
         // ODBC stored procedure call
-        prepare(stmt, NANODBC_TEXT("{CALL read_device_measures(?, ?, ?, ?, ?)}"));
+        prepare(stmt, NANODBC_TEXT("{CALL read_device_measures(?, ?, ?, ?, ?, ?, ?)}"));
 
         int dev_id   = devId;
         int lim      = limit;
@@ -805,19 +845,17 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
         else
             stmt.bind_null(2);
 
-        stmt.bind(3, &lim);
-        stmt.bind(4, &off);
+        if (areaPolygon.has_value())
+            stmt.bind(3, areaPolygon->c_str());
+        else
+            stmt.bind_null(3);
+        if (keysJson)
+            stmt.bind(4, keysJson->c_str());
+        else stmt.bind_null(4);
 
-        /*
-        std::string df = dateFrom.value_or("");
-        std::string dt = dateTo.value_or("");
 
-        stmt.bind(0, &devId);
-        stmt.bind(1, df.c_str());
-        stmt.bind(2, dt.c_str());
-        stmt.bind(3, &limit);
-        stmt.bind(4, &offset);
-        */
+        stmt.bind(5, &lim);
+        stmt.bind(6, &off);
 
         nanodbc::result result = nanodbc::execute(stmt);
 
@@ -827,7 +865,7 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
             // Column order MUST match SELECT in procedure
             row.timestamp = result.get<std::string>(0); // created_at
             row.key       = result.get<std::string>(1); // measure_key
-            row.value     = result.get<double>(2);      // measure_value
+            row.value     = result.get<std::string>(2); // measure_value
 
             rows.push_back(std::move(row));
         }
@@ -843,7 +881,7 @@ std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(int devId, const std
     return rows;
 }
 
-// функція запиту для отримання числа всіх записів в таблиці
+// функція запиту для отримання сумарного числа записів для окремого приладу
 int DatabaseManager::getMeasuresTotalCount(int devId)
 {
     std::lock_guard<std::mutex> lock(dbMutex_);
