@@ -35,15 +35,18 @@ services:
     ports:
       - "8443:8443"
     environment:
+      # Переменные для подключения к БД
       DB_HOST: mysql
       DB_PORT: 3306
       DB_NAME: guarder_base
       DB_USER: cvituser
       DB_PASSWORD: cvitpass
       HTTPS_PORT: 8443
+      # ODBC DSN настройки (если ваше приложение использует DSN)
+      ODBC_DSN: "DRIVER={MySQL ODBC 8.0 Driver};SERVER=mysql;PORT=3306;DATABASE=guarder_base;USER=cvituser;PASSWORD=cvitpass;OPTION=3;"
     volumes:
-      # В PROD лучше монтировать, а не копировать
-      - ./config/ssl:/app/config/ssl:ro
+      # Монтирование SSL сертификатов
+      - ./config/ssl_certs:/app/ssl_certs:ro
     networks:
       - asidc_network
 

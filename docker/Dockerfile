@@ -1,57 +1,42 @@
-# =========================
-# Build stage
-# =========================
-FROM ubuntu:22.04 AS builder
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM ubuntu:22.04 AS build
 
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
-	libjsoncpp-dev \
     libssl-dev \
     unixodbc-dev \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+COPY . .
+RUN cmake -B build && cmake --build build
 
-# Копируем только то, что нужно для сборки
-COPY CMakeLists.txt .
-COPY config ./config
-COPY apps ./apps
-COPY core ./core
-COPY third_party ./third_party
 
-# Если jsoncpp / nanodbc через FetchContent — они подтянутся сами
-
-RUN mkdir build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build . -j$(nproc)
-
-# =========================
-# Runtime stage
-# =========================
 FROM ubuntu:22.04
 
-ENV DEBIAN_FRONTEND=noninteractive
-
+# Установка необходимых пакетов включая MySQL ODBC драйвер
 RUN apt-get update && apt-get install -y \
     libssl3 \
+    libstdc++6 \
     unixodbc \
+    libodbc2 \
     ca-certificates \
+    odbc-mariadb \
     && rm -rf /var/lib/apt/lists/*
 
+# Настройка ODBC для MySQL/MariaDB
+RUN echo "[MySQL ODBC 8.0 Driver]" > /etc/odbcinst.ini && \
+    echo "Description = MariaDB ODBC Connector" >> /etc/odbcinst.ini && \
+    echo "Driver = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so" >> /etc/odbcinst.ini && \
+    echo "Setup = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so" >> /etc/odbcinst.ini && \
+    echo "FileUsage = 1" >> /etc/odbcinst.ini
+
 WORKDIR /app
+# Создаем директорию для SSL сертификатов (они будут примонтированы через volume)
+RUN mkdir -p /app/ssl_certs
+COPY config/ssl_certs app/ssl_certs
 
-# Бинарник
-COPY --from=builder /build/build/bin/GuarderServerCLI /app/GuarderServerCLI
-
-# Конфиги и сертификаты
-# COPY config /app/config
-COPY config /app
-
-EXPOSE 8443
+COPY --from=build /build/build/bin/GuarderServerCLI .
 
 CMD ["./GuarderServerCLI"]

@@ -4,3 +4,12 @@ build
 *.log
 old_gui
 scripts
+build/
+cmake-build-*/
+bin/
+out/
+*.exe
+*.dll
+*.so
+*.a
+docker/

@@ -300,7 +300,7 @@ public:
      */
     DeviceWriteResult saveDeviceMeasures(const std::string& jsonInput);
 
-    std::vector<MeasureRow> DatabaseManager::readDeviceMeasures(
+    std::vector<MeasureRow> readDeviceMeasures(
         int devId,
         const std::optional<std::string>& dateFrom,
         const std::optional<std::string>& dateTo,
@@ -310,7 +310,7 @@ public:
         int offset
         );
 
-    int DatabaseManager::getMeasuresTotalCount(int devId);
+    int getMeasuresTotalCount(int devId);
 
     // === Структуры для возврата результатов ===
 

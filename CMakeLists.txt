@@ -96,8 +96,9 @@ endif()
 # =========================
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/config
-    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        ${CMAKE_SOURCE_DIR}/config
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+    COMMENT "Copying config directory"
 )
 
 # =========================

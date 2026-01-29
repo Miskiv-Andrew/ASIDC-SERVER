@@ -46,9 +46,9 @@ private:
     std::mutex mutex_;
 
     // Константы (можно вынести в настройки)
-    static const int MAX_ATTEMPTS_PER_MINUTE = 5;
-    static const int MAX_FAILED_ATTEMPTS = 10;
-    static const int BLOCK_MINUTES = 15;
+    inline static const int MAX_ATTEMPTS_PER_MINUTE = 5;
+    inline static const int MAX_FAILED_ATTEMPTS = 10;
+    inline static const int BLOCK_MINUTES = 15;
 
 public:
     /**
@@ -237,10 +237,10 @@ bool ServerCore::startServer(int https_port)
 
 #else
 
-    // Linux/Unix
     char exe_path[PATH_MAX];
-    ssize_t count = readlink("/proc/self/exe", exe_path, PATH_MAX);
+    ssize_t count = readlink("/proc/self/exe", exe_path, PATH_MAX - 1);
     if (count != -1) {
+        exe_path[count] = '\0';
         std::string exe_dir = exe_path;
         size_t last_slash = exe_dir.find_last_of('/');
         if (last_slash != std::string::npos) {
@@ -248,9 +248,8 @@ bool ServerCore::startServer(int https_port)
         }
         pem_path = exe_dir + "ssl_certs/server.pem";
     } else {
-        // fallback - текущая директория
+        // fallback — если readlink вдруг не сработал
         pem_path = "ssl_certs/server.pem";
-
     }
 #endif
 
@@ -288,7 +287,7 @@ bool ServerCore::startServer(int https_port)
     serverContext = mg_start(&callbacks, NULL, options);
 
     if (!serverContext) {
-        lastError = "mg_start failed. SSL certificate: " + pem_path;
+        lastError = "mg_start failed. SSL certificate: " + pem_path + " | errno=" + strerror(errno);
         serverRunning = false;
         return false;
     }
