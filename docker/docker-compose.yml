@@ -3,7 +3,7 @@ version: "3.9"
 services:
   mysql:
     image: mysql:8.0
-    container_name: asidc_mysql
+    container_name: guarder_mysql
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
@@ -21,13 +21,14 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - asidc_network
+      - guarder_network
 
   server:
+    image: guarder-server
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: asidc_server
+    container_name: guarder_server
     restart: always
     depends_on:
       mysql:
@@ -44,15 +45,15 @@ services:
       HTTPS_PORT: 8443
       # ODBC DSN настройки (если ваше приложение использует DSN)
       ODBC_DSN: "DRIVER={MySQL ODBC 8.0 Driver};SERVER=mysql;PORT=3306;DATABASE=guarder_base;USER=cvituser;PASSWORD=cvitpass;OPTION=3;"
-    volumes:
+    # volumes:
       # Монтирование SSL сертификатов
-      - ./config/ssl_certs:/app/ssl_certs:ro
+      # - ./config/ssl_certs:/app/ssl_certs:ro
     networks:
-      - asidc_network
+      - guarder_network
 
 volumes:
   mysql_data:
 
 networks:
-  asidc_network:
+  guarder_network:
     driver: bridge
