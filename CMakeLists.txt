@@ -100,7 +100,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Link libraries
 # =========================
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    civetweb-c-library PUBLIC ssl crypto
     jsoncpp_static
 )
 
@@ -109,6 +108,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # =========================
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE
+		civetweb-c-library PUBLIC ssl crypto
         ssl
         crypto
         odbc
@@ -119,6 +119,7 @@ endif()
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
+		civetweb-c-library
         odbc32
         libcrypto
         libssl

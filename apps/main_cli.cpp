@@ -69,13 +69,28 @@ bool executeSQLScript(ServerCore& server, const std::string& sqlScript)
     return true;
 }
 
+// Читай строку подключения из переменной окружения (правильный подход для Docker)
+std::string getConnectionString()
+{
+    // Берём из переменной окружения, если есть
+    const char* envDsn = std::getenv("ODBC_DSN");
+    if (envDsn && envDsn[0] != '\0') {
+        return std::string(envDsn);
+    }
+    // Fallback для локального запуска
+    return "DSN=GuarderDB";
+}
+
 // Инициализация БД
 bool initializeDatabase(ServerCore& server)
 {
     std::cout << "[INFO] Initializing database...\n";
 
+    std::string connStr = getConnectionString();
+    std::cout << "[INFO] Using connection string: " << connStr << "\n";
+
     // Подключаемся к БД
-    if (!server.dbManager.initialize("DSN=GuarderDB")) {
+    if (!server.dbManager.initialize(connStr)) {
         std::cerr << "[ERROR] Database connection failed: "
                   << server.dbManager.getLastError() << std::endl;
         return false;

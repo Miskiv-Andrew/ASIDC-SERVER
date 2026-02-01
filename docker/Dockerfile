@@ -66,6 +66,7 @@ RUN mkdir -p /app/ssl_certs
 COPY config/ssl_certs /app/ssl_certs
 
 COPY --from=build /build/build/bin/GuarderServerCLI .
+COPY db/init/001_init.sql ./db/init/
 
 # Делаем файл исполняемым
 RUN chmod +x ./GuarderServerCLI
