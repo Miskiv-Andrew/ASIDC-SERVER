@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C++ Debug (inside container)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/build/build/bin/GuarderServerCLI",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "/app",
+      "environment": [
+        {
+          "name": "DB_HOST",
+          "value": "mysql"
+        },
+        {
+          "name": "DB_PORT",
+          "value": "3306"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "guarder_base"
+        },
+        {
+          "name": "DB_USER",
+          "value": "cvituser"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "value": "cvitpass"
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "",
+      "miDebuggerPath": "/usr/bin/gdb"
+    }
+  ]
+}

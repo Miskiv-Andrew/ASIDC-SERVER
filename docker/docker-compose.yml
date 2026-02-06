@@ -23,11 +23,15 @@ services:
     networks:
       - guarder_network
 
+  # =====================
+  # PRODUCTION SERVER
+  # =====================
   server:
-    image: guarder-server
+    image: guarder-server:runtime
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      target: runtime
     container_name: guarder_server
     restart: always
     depends_on:
@@ -36,20 +40,46 @@ services:
     ports:
       - "8443:8443"
     environment:
-      # Переменные для подключения к БД
       DB_HOST: mysql
       DB_PORT: 3306
       DB_NAME: guarder_base
       DB_USER: cvituser
       DB_PASSWORD: cvitpass
       HTTPS_PORT: 8443
-      # ODBC DSN настройки (если ваше приложение использует DSN)
-      ODBC_DSN: "DRIVER={MySQL ODBC 8.0 Driver};SERVER=mysql;PORT=3306;DATABASE=guarder_base;USER=cvituser;PASSWORD=cvitpass;OPTION=3;"
-    # volumes:
-      # Монтирование SSL сертификатов
-      # - ./config/ssl_certs:/app/ssl_certs:ro
     networks:
       - guarder_network
+    profiles: ["prod"]
+
+  # =====================
+  # DEBUG SERVER (gdbserver)
+  # =====================
+  server-debug:
+    image: guarder-server:debug
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: debug
+    container_name: guarder_server_debug
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+      - "2345:2345"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: guarder_base
+      DB_USER: cvituser
+      DB_PASSWORD: cvitpass
+      HTTPS_PORT: 8443
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - guarder_network
+    profiles: ["debug"]
 
 volumes:
   mysql_data:

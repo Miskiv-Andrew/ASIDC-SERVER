@@ -1,0 +1,38 @@
+
+/*
+{
+  "name": "Guarder Dev",
+  "dockerComposeFile": "../docker/docker-compose.yml",
+  "service": "guarder-dev",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "root",
+  "extensions": [
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools"
+  ]
+}
+*/
+
+{
+  "name": "Guarder C++ Development",
+  "dockerComposeFile": "../docker/docker-compose.yml",
+  "service": "server",
+  "workspaceFolder": "/build",
+  
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+      }
+    }
+  },
+  
+  "postCreateCommand": "apt-get update && apt-get install -y gdb vim",
+  "forwardPorts": [8443, 2345],
+  "remoteUser": "root",
+  "features": {}
+}

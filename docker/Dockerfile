@@ -1,3 +1,6 @@
+# ==========================================================================================================
+# 1) BUILD STAGE
+# ==========================================================================================================
 FROM ubuntu:22.04 AS build
 
 RUN apt-get update && apt-get install -y \
@@ -19,16 +22,19 @@ COPY core ./core/
 # Копируем зависимости (если есть)
 COPY third_party ./third_party/ 
 
-RUN cmake -B build && cmake --build build
+# ВАЖНО: Сборка с отладочными символами
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build
 
 # Проверка линковки SSL (для отладки)
 RUN echo "=== Checking SSL linking ===" && \
     ldd /build/build/bin/GuarderServerCLI | grep -E "ssl|crypto" || echo "WARNING: SSL libraries not found in binary!"
 
+# ==========================================================================================================
+# 2) RUNTIME STAGE
+# ==========================================================================================================
+FROM ubuntu:22.04 as runtime
 
-FROM ubuntu:22.04
-
-# Установка необходимых пакетов включая MySQL ODBC драйвер
+# Установка необходимых пакетов включая MySQL ODBC драйвер И ОТЛАДЧИК
 RUN apt-get update && apt-get install -y \
     libssl3 \
     libstdc++6 \
@@ -46,7 +52,6 @@ RUN echo "[MySQL ODBC 8.0 Driver]" > /etc/odbcinst.ini && \
     echo "FileUsage = 1" >> /etc/odbcinst.ini
 
 # КРИТИЧНО: Создание User DSN (odbc.ini) для приложения
-# Ваше приложение, вероятно, ищет DSN по имени
 RUN echo "[ODBC Data Sources]" > /etc/odbc.ini && \
     echo "guarder_db = MySQL ODBC 8.0 Driver" >> /etc/odbc.ini && \
     echo "" >> /etc/odbc.ini && \
@@ -61,7 +66,7 @@ RUN echo "[ODBC Data Sources]" > /etc/odbc.ini && \
     echo "Option = 3" >> /etc/odbc.ini
 
 WORKDIR /app
-# Создаем директорию для SSL сертификатов (они будут примонтированы через volume)
+# Создаем директорию для SSL сертификатов
 RUN mkdir -p /app/ssl_certs
 COPY config/ssl_certs /app/ssl_certs
 
@@ -75,4 +80,24 @@ RUN chmod +x ./GuarderServerCLI
 ENV ODBCSYSINI=/etc
 ENV ODBCINI=/etc/odbc.ini
 
+# Обычный запуск
 CMD ["./GuarderServerCLI"]
+
+# ==========================================================================================================
+# 3) DEBUG STAGE
+# ==========================================================================================================
+FROM runtime AS debug
+
+RUN apt-get update && apt-get install -y \
+    gdb \
+    gdbserver \
+    vim \
+    procps \
+ && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 2345
+CMD ["gdbserver", "0.0.0.0:2345", "./GuarderServerCLI"]
+
+# Для отладки: запускаем tail чтобы контейнер не останавливался
+# Программу будем запускать вручную через gdb
+# CMD ["tail", "-f", "/dev/null"]

@@ -855,54 +855,18 @@ void ServerCore::logMessage(const std::string &message)
 
 std::string ServerCore::readRequestBody(mg_connection* conn)
 {
-    // Получаем информацию о запросе
-    const struct mg_request_info* req_info = mg_get_request_info(conn);
-    if (!req_info) {
-        return "";
+    std::string body;
+    body.reserve(1024); // минимальный старт
+
+    char buffer[4096];
+    int read = 0;
+
+    while ((read = mg_read(conn, buffer, sizeof(buffer))) > 0) {
+        body.append(buffer, read);
     }
 
-    // Получаем длину контента из заголовка Content-Length
-    long content_length = 0;
-    if (req_info->content_length > 0) {
-        content_length = req_info->content_length;
-    }
-
-    // Проверяем максимальный размер
-    if (content_length <= 0) {
-        // Нет тела запроса или нулевая длина
-        return "";
-    }
-
-    if (content_length > MAX_REQUEST_BODY_SIZE) {
-        // logMessage("Request body too large: " + std::to_string(content_length) + " bytes");
-        return "";
-    }
-
-    // Выделяем буфер для чтения
-    std::vector<char> buffer(content_length + 1); // +1 для нуль-терминатора
-    size_t total_read = 0;
-
-    // Читаем данные порциями
-    while (total_read < static_cast<size_t>(content_length)) {
-        int bytes_read = mg_read(conn, &buffer[total_read], content_length - total_read);
-
-        if (bytes_read <= 0) {
-            // Ошибка чтения или соединение закрыто
-            // logMessage("Error reading request body, read " + std::to_string(total_read) + " of " +
-            // std::to_string(content_length) + " bytes");
-            return "";
-        }
-
-        total_read += bytes_read;
-    }
-
-    // Добавляем нуль-терминатор для безопасности
-    buffer[total_read] = '\0';
-
-    // Возвращаем как строку
-    return std::string(buffer.data(), total_read);
+    return body;
 }
-
 
 
 bool ServerCore::parseJsonRequest(const std::string& jsonStr, Json::Value& jsonValue, std::string& errorMsg)
